@@ -3,6 +3,7 @@ const express = require('express');
 const ethers = require('ethers');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 const burnHandler = require('./burnHandler');
 
 const app = express();
@@ -64,6 +65,13 @@ const pendingMints = new Map(); // requestId -> { initiatedAt, keyPostedAt }
 // ─── Ed25519 Key Generation ─────────────────────────────────────────────────
 async function generateEd25519Keys() {
   const ed = await import('@noble/ed25519');
+  const crypto = require('crypto');
+  
+  // Set up SHA-512 sync for @noble/ed25519
+  if (!ed.etc.sha512Sync) {
+    ed.etc.sha512Sync = (...m) => crypto.createHash('sha512').update(Buffer.concat(m)).digest();
+  }
+  
   const spendPriv = ed.utils.randomPrivateKey();
   const viewPriv = ed.utils.randomPrivateKey();
   const spendPub = await ed.getPublicKey(spendPriv);
@@ -91,9 +99,9 @@ async function processMint(reqIdHex, lpPublicSpendKey, lpPublicViewKey) {
   mint.lpPublicViewKey = lpPublicViewKey;
   pendingMints.set(reqIdHex, mint);
 
-  // 2. Wait 30 seconds, then call setMintReady
-  console.log(`[Timer] Waiting 30 seconds before calling setMintReady...`);
-  await new Promise(r => setTimeout(r, 30000));
+  // 2. Wait 20 seconds, then call setMintReady
+  console.log(`[Timer] Waiting 20 seconds before calling setMintReady...`);
+  await new Promise(r => setTimeout(r, 20000));
 
   // Fetch required bond from vault config
   const vault = await hub.getVault(wallet.address);
@@ -190,6 +198,51 @@ app.post('/mint/key', async (req, res) => {
 app.get('/mints', (_req, res) => {
   const list = Array.from(pendingMints.values());
   res.json({ mints: list, count: list.length });
+});
+
+// ─── Chainlink Data Streams Report Proxy ────────────────────────────────────
+// Serves signed fullReport blobs to the frontend so the API secret never
+// reaches the browser. Mirrors frontend/report-proxy/server.js behaviour.
+
+const PROXY_DIR = path.join(__dirname, '..', 'frontend', 'report-proxy');
+
+function fetchReport(feedId) {
+  const out = execSync(`node "${path.join(PROXY_DIR, 'fetchReportHex.js')}" ${feedId}`, {
+    cwd: PROXY_DIR,
+    encoding: 'utf8',
+    env: { ...process.env, NODE_NO_WARNINGS: '1' }
+  });
+  return out.trim();
+}
+
+app.options('/reports', (_req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.sendStatus(204);
+});
+
+app.get('/reports', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+
+  const feedIDs = (req.query.feedIDs || '').split(',').filter(Boolean);
+  if (feedIDs.length === 0) {
+    return res.status(400).json({ error: 'Missing feedIDs query parameter' });
+  }
+
+  try {
+    const reports = await Promise.all(
+      feedIDs.map(async (id) => {
+        const fullReport = fetchReport(id);
+        return { feedID: id, fullReport };
+      })
+    );
+    res.json({ reports });
+  } catch (e) {
+    console.error('Report fetch failed:', e.message);
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // ─── Burn Handler Integration ───────────────────────────────────────────────

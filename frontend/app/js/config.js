@@ -28,7 +28,7 @@ export const NETWORKS = {
 // Stream IDs and verifier are confirmed against the testnet data engine
 // (see frontend/report-proxy/checkFeeds.js).
 export const ORACLE_CONFIG = {
-    reportProxyUrl: (typeof window !== 'undefined' && window.REPORT_PROXY_URL) || 'http://localhost:3002',
+    reportProxyUrl: (typeof window !== 'undefined' && window.REPORT_PROXY_URL) || 'http://localhost:3001',
     xmrFeedId: '0x0003c70558bd921b1559d37b8e347797f121d1240e7386e68b2bee9b731b0833', // XMR/USD-RefPrice-testnet-production
     ethFeedId: '0x000359843a543ee2fe414dc14c7e7920ef10f4372990b79d6361cdc0dd1ba782', // ETH/USD-RefPrice-testnet-production
     verifierProxy: '0x8Ac491b7c118a0cdcF048e0f707247fD8C9575f9',
@@ -405,7 +405,8 @@ export const ABIS = {
         'function approve(address spender, uint256 amount) external returns (bool)',
         'function allowance(address owner, address spender) external view returns (uint256)',
         'function transfer(address to, uint256 amount) external returns (bool)',
-        'function totalSupply() external view returns (uint256)'
+        'function totalSupply() external view returns (uint256)',
+        'error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed)'
     ]
 };
 
