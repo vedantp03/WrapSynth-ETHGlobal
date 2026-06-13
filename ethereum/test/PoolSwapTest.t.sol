@@ -118,12 +118,15 @@ contract PoolSwapTest is Test, IUniswapV3SwapCallback {
 
         hub.setLiquidityRouter(address(router));
 
+        // Fund MockSavingsDAI wrapper with WETH so redeem() works
+        deal(GnosisAddresses.XDAI, GnosisAddresses.SDAI, 100000 ether);
+
         // Set oracle prices (8 decimals)
         SimpleOracleFacet(address(hub)).updatePrices(300_00000000, 118_00000000);
 
         // Initialize pool at oracle price (must be called as hub)
         vm.prank(address(hub));
-        router.initializePool(XMR_PRICE);
+        router.initializePool(XMR_PRICE, 1e18);
 
         // Fund swapper with sDAI and wsXMR
         deal(GnosisAddresses.SDAI, swapper, 10_000 * 1e18); // 10,000 sDAI
@@ -462,7 +465,7 @@ contract PoolSwapTest is Test, IUniswapV3SwapCallback {
         // The on-chain bug was: uint256(liq) * (1 << 96) * diff0 overflowed uint256
         // when liquidity was ~3.4e23. This test creates a position and verifies
         // the router can compute its value without reverting.
-        (uint256 daiAmt, uint256 wsxmrAmt) = router.getPositionAmountsAtPrice(tokenId, XMR_PRICE);
+        (uint256 daiAmt, uint256 wsxmrAmt) = router.getPositionAmountsAtPrice(tokenId, XMR_PRICE, 1e18);
         console.log("Position sDAI value:", daiAmt);
         console.log("Position wsXMR value:", wsxmrAmt);
         // Values should be non-zero for an in-range position

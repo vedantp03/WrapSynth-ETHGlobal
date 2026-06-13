@@ -92,10 +92,13 @@ contract YieldKeeperTest is Test {
 
         hub.setLiquidityRouter(address(router));
 
+        // Fund MockSavingsDAI wrapper with WETH so redeem() works
+        deal(GnosisAddresses.XDAI, GnosisAddresses.SDAI, 100000 ether);
+
         SimpleOracleFacet(address(hub)).updatePrices(300_00000000, 118_00000000);
 
         vm.prank(address(hub));
-        router.initializePool(XMR_PRICE);
+        router.initializePool(XMR_PRICE, 1e18);
 
         // Setup LP vault with large collateral (10,000 sDAI)
         vm.startPrank(lp);

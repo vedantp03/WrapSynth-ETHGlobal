@@ -68,13 +68,12 @@ contract wsXMRLiquidityRouter is IwsXmrLiquidityRouter {
 
     // ========== INITIALIZATION ==========
 
-    function initializePool(uint256 initialXmrPrice) external onlyDiamond {
-        uint256 collateralPrice = 1e18; // sDAI ≈ $1
-        uint160 sqrtPriceX96 = _priceToSqrtPriceX96(initialXmrPrice, collateralPrice);
+    function initializePool(uint256 initialXmrPrice, uint256 initialCollateralPrice) external onlyDiamond {
+        uint160 sqrtPriceX96 = _priceToSqrtPriceX96(initialXmrPrice, initialCollateralPrice);
 
         IUniswapV3Pool(pool).initialize(sqrtPriceX96);
 
-        emit PoolInitialized(pool, sqrtPriceX96, collateralPrice, initialXmrPrice);
+        emit PoolInitialized(pool, sqrtPriceX96, initialCollateralPrice, initialXmrPrice);
     }
 
     // ========== POSITION MANAGEMENT ==========
@@ -246,7 +245,7 @@ contract wsXMRLiquidityRouter is IwsXmrLiquidityRouter {
             : (amount1, amount0);
     }
 
-    function drainPosition(uint256 tokenId, uint16 slippageBps, uint256 oracleXmrPrice)
+    function drainPosition(uint256 tokenId, uint16 slippageBps, uint256 oracleXmrPrice, uint256 oracleCollateralPrice)
         external onlyDiamond
         returns (uint256 daiOut, uint256 wsxmrOut)
     {
@@ -288,7 +287,7 @@ contract wsXMRLiquidityRouter is IwsXmrLiquidityRouter {
         // D2: Post-collect oracle sanity check — verify returned amounts are within
         // slippage tolerance of what the oracle price predicts.
         {
-            uint160 oracleSqrtPriceX96 = _priceToSqrtPriceX96(oracleXmrPrice, 1e18);
+            uint160 oracleSqrtPriceX96 = _priceToSqrtPriceX96(oracleXmrPrice, oracleCollateralPrice);
             (uint256 expectedDai, uint256 expectedWsxmr) = _getAmountsAtSqrtPrice(tokenId, oracleSqrtPriceX96);
 
             if (expectedDai > 0 && daiOut < (expectedDai * (BPS_DENOMINATOR - slippageBps)) / BPS_DENOMINATOR) {
@@ -332,20 +331,19 @@ contract wsXMRLiquidityRouter is IwsXmrLiquidityRouter {
         return _getAmountsAtSqrtPrice(tokenId, sqrtPriceX96);
     }
 
-    function getPositionAmountsAtPrice(uint256 tokenId, uint256 xmrPriceUSD18)
+    function getPositionAmountsAtPrice(uint256 tokenId, uint256 xmrPriceUSD18, uint256 collateralPriceUSD18)
         external view
         returns (uint256 daiAmount, uint256 wsxmrAmount)
     {
-        uint256 collateralPrice = 1e18;
-        uint160 sqrtPriceX96 = _priceToSqrtPriceX96(xmrPriceUSD18, collateralPrice);
+        uint160 sqrtPriceX96 = _priceToSqrtPriceX96(xmrPriceUSD18, collateralPriceUSD18);
         return _getAmountsAtSqrtPrice(tokenId, sqrtPriceX96);
     }
 
-    function isPositionOutOfRange(uint256 tokenId, uint256 xmrPrice) external view returns (bool) {
+    function isPositionOutOfRange(uint256 tokenId, uint256 xmrPrice, uint256 collateralPrice) external view returns (bool) {
         (, , , , , int24 tickLower, int24 tickUpper, , , , , ) =
             INonfungiblePositionManager(positionManager).positions(tokenId);
 
-        uint160 sqrtPriceX96 = _priceToSqrtPriceX96(xmrPrice, 1e18);
+        uint160 sqrtPriceX96 = _priceToSqrtPriceX96(xmrPrice, collateralPrice);
 
         uint160 sqrtLower = TickMath.getSqrtRatioAtTick(tickLower);
         uint160 sqrtUpper = TickMath.getSqrtRatioAtTick(tickUpper);

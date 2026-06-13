@@ -451,13 +451,14 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         }
         
         uint256 xmrPrice = _getXmrPriceFromStorage();
-        bool outOfRange = IwsXmrLiquidityRouter(liquidityRouter).isPositionOutOfRange(tokenId, xmrPrice);
+        uint256 collateralPrice = _getCollateralPriceFromStorage();
+        bool outOfRange = IwsXmrLiquidityRouter(liquidityRouter).isPositionOutOfRange(tokenId, xmrPrice * 1e10, collateralPrice * 1e10);
         bool isOwner = msg.sender == meta.vaultOwner;
         if (!outOfRange && !isOwner) revert PositionInRange();
         
         address user = meta.user;
         (uint256 daiOut, uint256 wsxmrOut) = IwsXmrLiquidityRouter(liquidityRouter)
-            .drainPosition(tokenId, uint16(DEFAULT_COLP_SLIPPAGE_BPS), xmrPrice);
+            .drainPosition(tokenId, uint16(DEFAULT_COLP_SLIPPAGE_BPS), xmrPrice * 1e10, collateralPrice * 1e10);
 
         uint256 keeperFee = 0;
         if (!isOwner) {
@@ -657,14 +658,14 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         );
     }
     
-    function _getVaultPositionTotalsAtOracle(address vaultAddr, uint256 xmrPrice)
+    function _getVaultPositionTotalsAtOracle(address vaultAddr, uint256 xmrPrice, uint256 collateralPrice)
         internal view
         returns (uint256 totalDAI, uint256 totalWsxmr)
     {
         uint256[] memory positions = _vaultPositions[vaultAddr];
         for (uint256 i = 0; i < positions.length; i++) {
             (uint256 dai, uint256 wsxmr) = IwsXmrLiquidityRouter(liquidityRouter)
-                .getPositionAmountsAtPrice(positions[i], xmrPrice);
+                .getPositionAmountsAtPrice(positions[i], xmrPrice * 1e10, collateralPrice * 1e10);
             totalDAI += dai;
             totalWsxmr += wsxmr;
         }
@@ -674,9 +675,10 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         PositionMetadata memory meta = _positionMetadata[tokenId];
         Vault storage vault = _vaults[meta.vaultOwner];
         uint256 xmrPrice = _getXmrPriceFromStorage();
+        uint256 collateralPrice = _getCollateralPriceFromStorage();
         
         (uint256 daiOut, uint256 wsxmrOut) = IwsXmrLiquidityRouter(liquidityRouter)
-            .drainPosition(tokenId, uint16(DEFAULT_COLP_SLIPPAGE_BPS), xmrPrice);
+            .drainPosition(tokenId, uint16(DEFAULT_COLP_SLIPPAGE_BPS), xmrPrice * 1e10, collateralPrice * 1e10);
         
         if (vault.deployedSDAIShares >= meta.sDAISharesOriginal) {
             vault.deployedSDAIShares -= meta.sDAISharesOriginal;

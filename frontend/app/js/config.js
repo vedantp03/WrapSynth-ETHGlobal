@@ -8,33 +8,46 @@ const DP = D.pool || {};
 const DLC = D.lpConfig || {};
 
 export const NETWORKS = {
-    gnosis: {
-        id: D.chainId || 100,
-        name: 'Gnosis Chain',
+    baseSepolia: {
+        id: D.chainId || 84532,
+        name: D.network || 'Base Sepolia',
         rpcUrls: [
-            'https://rpc.ankr.com/gnosis',
-            'https://gnosis.api.onfinality.io/public',
-            'https://rpc.gnosis.gateway.fm'
+            D.rpcUrl || 'https://sepolia.base.org',
+            'https://base-sepolia-rpc.publicnode.com'
         ],
-        blockExplorer: D.explorer || 'https://gnosisscan.io',
+        blockExplorer: D.explorer || 'https://sepolia.basescan.org',
         nativeCurrency: {
-            name: 'xDAI',
-            symbol: 'xDAI',
+            name: 'Ether',
+            symbol: 'ETH',
             decimals: 18
         }
     }
 };
 
+// Oracle configuration — Chainlink Data Streams for Base Sepolia deployment.
+// Stream IDs and verifier are confirmed against the testnet data engine
+// (see frontend/report-proxy/checkFeeds.js).
+export const ORACLE_CONFIG = {
+    reportProxyUrl: (typeof window !== 'undefined' && window.REPORT_PROXY_URL) || 'http://localhost:3002',
+    xmrFeedId: '0x0003c70558bd921b1559d37b8e347797f121d1240e7386e68b2bee9b731b0833', // XMR/USD-RefPrice-testnet-production
+    ethFeedId: '0x000359843a543ee2fe414dc14c7e7920ef10f4372990b79d6361cdc0dd1ba782', // ETH/USD-RefPrice-testnet-production
+    verifierProxy: '0x8Ac491b7c118a0cdcF048e0f707247fD8C9575f9',
+    linkToken: '0xE4aB69C077896252FAFBD49EFD26B5D171A32410'
+};
+
 // Contract addresses - source of truth: ../../deployment.json
 export const CONTRACTS = {
-    hub: DC.wsXmrHub || '0x1fb8E7593B01bCdAE13e5b63e529f0e30a3ebD50',
-    wsxmrToken: DC.wsXMR || '0x30Aeb2A142744430fFD7D698D5C7C41769CE1279',
-    liquidityRouter: DC.liquidityRouter || '0x6893f38e1DeEdCa95ce8995B01550921cEe353a1',
-    sDAI: DE.sDAI || '0xaf204776c7245bF4147c2612BF6e5972Ee483701',
-    uniswapV3Pool: DP.uniswapV3Pool || '0x3b3f640b137ed13c79d2d51c54329816a6fbd85d',
+    hub: DC.wsXmrHub || '0x0454983E17b803a2C6ff0d98d5D58676525F4A92',
+    wsxmrToken: DC.wsXMR || '0x500735b66b9968e9fc7d6c6d1ae6ccf19a6a238b',
+    liquidityRouter: DC.liquidityRouter || '0x0F9172c037eC5dFFa940aFa357Ee0A52B5a08d71',
+    sDAI: DE.sDAI || '0x57cA07e0443c7Dc720CAd8AF63D8a6bBeDabD202',
+    uniswapV3Pool: DP.uniswapV3Pool || '0x79cF96e0FA6aBE3cF02994B35c68A69359857Ae9',
     // Default LP vault to use for mints (the active LP running the LP node)
-    defaultLpVault: DLC.defaultLpVault || '0x492c0b9F298cC49FE2644a2EBc6eA8dF848c72FB'
+    defaultLpVault: DLC.defaultLpVault || null
 };
+
+// Deployment block for event pagination
+export const DEPLOYMENT_BLOCK = D.deploymentBlock ? BigInt(D.deploymentBlock) : 0n;
 
 // LP Server Configuration
 export const LP_SERVER_CONFIG = {
@@ -90,7 +103,7 @@ export const UNISWAP_CONFIG = {
 export const DECIMALS = {
     wsXMR: 8,      // EVM wsXMR token decimals
     XMR: 12,       // Monero atomic units decimals
-    ETH: 18,       // ETH/xDAI decimals
+    ETH: 18,       // ETH decimals
     USD: 18        // Pyth price decimals
 };
 
@@ -327,12 +340,13 @@ export const ABIS = {
         'error PoolNotInitialized()',
         'error PoolAlreadyInitialized()',
 
-        // Oracle (RedStoneOracleFacet — user can update prices with RedStone data)
+        // Oracle (ChainlinkDataStreamsOracleFacet — bytes[] = [XMR fullReport, ETH fullReport])
         'function updateOraclePrices(bytes[] calldata) external payable',
         'function getXmrPrice() external view returns (uint256)',
         'function getCollateralPrice() external view returns (uint256)',
         'function getXmrPriceWithAge(uint256 maxAge) external view returns (uint256)',
         'function getCollateralPriceWithAge(uint256 maxAge) external view returns (uint256)',
+        'function getUpdateFee(bytes[] calldata) external view returns (uint256)',
 
         // Events
         'event MintInitiated(bytes32 indexed requestId, address indexed initiator, address indexed recipient, address lpVault, uint256 xmrAmount, uint256 wsxmrAmount, uint256 feeAmount, bytes32 claimCommitment, bytes32 userPublicKey, uint256 timeout)',
@@ -341,7 +355,7 @@ export const ABIS = {
         'event MintFinalized(bytes32 indexed requestId, bytes32 secret)',
         'event MintCancelled(bytes32 indexed requestId)',
         'event BurnRequested(bytes32 indexed requestId, address indexed user, address indexed lpVault, uint256 wsxmrAmount, uint256 xmrAmount, uint256 rewardCollateral, bytes32 claimCommitment)',
-        'event HashProposed(bytes32 indexed requestId, bytes32 secretHash)',
+        'event HashProposed(bytes32 indexed requestId, bytes32 secretHash, bytes32 lpPublicSpendKey, bytes32 lpPublicViewKey)',
         'event BurnCommitted(bytes32 indexed requestId, uint256 deadline)',
         'event BurnFinalized(bytes32 indexed requestId, bytes32 secret, uint256 reward)',
         'event BurnSlashed(bytes32 indexed requestId, address indexed user, uint256 totalSeized)',

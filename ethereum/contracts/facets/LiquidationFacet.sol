@@ -143,7 +143,7 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
         
         // Atomic unwind all deployed positions before seizure
         if (_vaultPositions[lpVault].length > 0) {
-            _unwindAllVaultPositions(lpVault, xmrPrice);
+            _unwindAllVaultPositions(lpVault, xmrPrice, collateralPrice);
         }
         
         // Prices already fetched above, reuse for seizure calculation
@@ -293,7 +293,7 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
         
         // Unwind old vault positions
         if (_vaultPositions[oldVault].length > 0) {
-            _unwindAllVaultPositions(oldVault, xmrPrice);
+            _unwindAllVaultPositions(oldVault, xmrPrice, collateralPrice);
         }
         
         // Recalculate debt after burn settlements
@@ -408,7 +408,7 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
             );
         }
         
-        (uint256 positionDAI, uint256 positionWsxmr) = _getVaultPositionTotalsAtOracle(vaultAddr, xmrPrice);
+        (uint256 positionDAI, uint256 positionWsxmr) = _getVaultPositionTotalsAtOracle(vaultAddr, xmrPrice, collateralPrice);
         return CollateralLogic.calculateVaultCRWithDeployment(
             vault.collateralShares,
             positionDAI,
@@ -420,20 +420,20 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
         );
     }
     
-    function _getVaultPositionTotalsAtOracle(address vaultAddr, uint256 xmrPrice)
+    function _getVaultPositionTotalsAtOracle(address vaultAddr, uint256 xmrPrice, uint256 collateralPrice)
         internal view
         returns (uint256 totalDAI, uint256 totalWsxmr)
     {
         uint256[] memory positions = _vaultPositions[vaultAddr];
         for (uint256 i = 0; i < positions.length; i++) {
             (uint256 dai, uint256 wsxmr) = IwsXmrLiquidityRouter(liquidityRouter)
-                .getPositionAmountsAtPrice(positions[i], xmrPrice);
+                .getPositionAmountsAtPrice(positions[i], xmrPrice * 1e10, collateralPrice * 1e10);
             totalDAI += dai;
             totalWsxmr += wsxmr;
         }
     }
     
-    function _unwindAllVaultPositions(address lpVault, uint256 xmrPrice) internal {
+    function _unwindAllVaultPositions(address lpVault, uint256 xmrPrice, uint256 collateralPrice) internal {
         Vault storage vault = _vaults[lpVault];
         
         while (_vaultPositions[lpVault].length > 0) {
@@ -442,7 +442,7 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
             PositionMetadata memory meta = _positionMetadata[tokenId];
             
             (uint256 daiOut, uint256 wsxmrOut) = IwsXmrLiquidityRouter(liquidityRouter)
-                .drainPosition(tokenId, uint16(DEFAULT_COLP_SLIPPAGE_BPS), xmrPrice);
+                .drainPosition(tokenId, uint16(DEFAULT_COLP_SLIPPAGE_BPS), xmrPrice * 1e10, collateralPrice * 1e10);
             
             if (daiOut > 0) {
                 vault.collateralShares += daiOut;

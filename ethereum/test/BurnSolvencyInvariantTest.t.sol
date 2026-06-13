@@ -75,6 +75,9 @@ contract BurnSolvencyInvariantTest is Test {
         );
 
         wsxmr.setHub(address(hub));
+
+        // Fund MockSavingsDAI wrapper with WETH so redeem() works
+        deal(GnosisAddresses.XDAI, GnosisAddresses.SDAI, 100000 ether);
     }
 
     // ========== FIX 1: SOLVENCY INVARIANTS ==========

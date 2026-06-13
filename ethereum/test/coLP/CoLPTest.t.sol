@@ -106,12 +106,15 @@ contract CoLPTest is Test, IUniswapV3SwapCallback {
         // Register router with hub
         hub.setLiquidityRouter(address(router));
 
+        // Fund MockSavingsDAI wrapper with WETH so redeem() works
+        deal(GnosisAddresses.XDAI, GnosisAddresses.SDAI, 100000 ether);
+
         // Set oracle prices
         SimpleOracleFacet(address(hub)).updatePrices(390_00000000, 1_00000000);
 
         // Initialize pool at oracle price (must be called as hub)
         vm.prank(address(hub));
-        router.initializePool(XMR_PRICE);
+        router.initializePool(XMR_PRICE, 1e18);
 
         // Setup LP vault with collateral
         vm.startPrank(lp);
@@ -238,7 +241,7 @@ contract CoLPTest is Test, IUniswapV3SwapCallback {
         // The key invariant: CR uses oracle prices, not pool spot.
         // We verify this by checking that the position value at oracle price
         // is used in the CR calculation (via _calculateCRWithPositions)
-        (uint256 daiAtOracle, uint256 wsxmrAtOracle) = router.getPositionAmountsAtPrice(tokenId, XMR_PRICE);
+        (uint256 daiAtOracle, uint256 wsxmrAtOracle) = router.getPositionAmountsAtPrice(tokenId, XMR_PRICE, 1e18);
         assertTrue(daiAtOracle > 0, "should have DAI at oracle price");
         assertTrue(wsxmrAtOracle > 0, "should have wsXMR at oracle price");
 
@@ -401,7 +404,7 @@ contract CoLPTest is Test, IUniswapV3SwapCallback {
         // M3: Sync pool price to oracle so drainPosition slippage bounds are consistent
         _pushPoolPriceUp(10 ether);
 
-        bool outOfRange = router.isPositionOutOfRange(tokenId, 800 * 1e18);
+        bool outOfRange = router.isPositionOutOfRange(tokenId, 800 * 1e18, 1e18);
         assertTrue(outOfRange, "position should be out of range");
 
         // Keeper rebalances

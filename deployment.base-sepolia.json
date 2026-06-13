@@ -1,0 +1,61 @@
+{
+  "_comment": "ETHGlobal NYC 2026 deployment manifest for Base Sepolia. Addresses are populated by script/DeployBaseSepolia.s.sol; copy the values it prints into this file, then symlink/copy to deployment.json + frontend/deployment.json to point the UI at Base Sepolia.",
+  "network": "Base Sepolia",
+  "chainId": 84532,
+  "deploymentDate": "2026-06-13T06:28:00Z",
+  "rpcUrl": "https://sepolia.base.org",
+  "wsUrl": null,
+  "explorer": "https://sepolia.basescan.org",
+  "contracts": {
+    "wsXMR": "0x500735b66b9968e9fc7d6c6d1ae6ccf19a6a238b",
+    "wsXmrHub": "0x0454983E17b803a2C6ff0d98d5D58676525F4A92",
+    "liquidityRouter": "0x0F9172c037eC5dFFa940aFa357Ee0A52B5a08d71",
+    "swapHelper": null,
+    "facets": {
+      "ChainlinkDataStreamsOracleFacet": "0xe38af534e73995a0bfac54e40ed82bc2ffddd22d",
+      "VaultFacet": "0xeb2435f32deda1da7cbbcd95fc3c230b0b9fcd92",
+      "MintFacet": "0x09109e9f0c9b2affbdef61a541b6a5e3f70069a9",
+      "BurnFacet": "0xc957665b81b16934bf2df813c714fabf8a5878ae",
+      "LiquidationFacet": "0x42d2cc6db9b495d85922e95d90815f2244567c56",
+      "YieldFacet": "0x2ed9cc036bba0d976847367a378e6d8e0d3ca19a"
+    }
+  },
+  "externalContracts": {
+    "sDAI": "0x57cA07e0443c7Dc720CAd8AF63D8a6bBeDabD202",
+    "wxDAI": "0x7450C945A87F24DE0219D27f5d9A6EdeF6008CB3",
+    "chainlinkVerifierProxy": "0x8Ac491b7c118a0cdcF048e0f707247fD8C9575f9",
+    "linkToken": "0xE4aB69C077896252FAFBD49EFD26B5D171A32410",
+    "Ed25519Helper": "0x8D7DD0A1FD26A2602837B028afB7A1f1b21DA9E7"
+  },
+  "oracle": {
+    "type": "chainlink-data-streams",
+    "xmrUsdFeedId": "0x0003c70558bd921b1559d37b8e347797f121d1240e7386e68b2bee9b731b0833",
+    "ethUsdFeedId": "0x000359843a543ee2fe414dc14c7e7920ef10f4372990b79d6361cdc0dd1ba782",
+    "reportProxyUrl": "http://localhost:3002",
+    "dataEngineUrl": "https://api.testnet-dataengine.chain.link"
+  },
+  "pool": {
+    "uniswapV3Pool": "0x79cF96e0FA6aBE3cF02994B35c68A69359857Ae9",
+    "feeTier": 3000
+  },
+  "lpConfig": {
+    "defaultLpVault": null,
+    "apiPort": 3001,
+    "minCollateralRatio": 150,
+    "liquidationThreshold": 120,
+    "targetCollateralRatio": 180
+  },
+  "verification": {
+    "status": "verified",
+    "verifiedContracts": [
+      "wsXMR",
+      "wsXmrHub",
+      "ChainlinkDataStreamsOracleFacet",
+      "VaultFacet",
+      "MintFacet",
+      "BurnFacet",
+      "LiquidationFacet",
+      "YieldFacet"
+    ]
+  }
+}

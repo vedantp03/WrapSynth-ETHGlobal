@@ -44,7 +44,7 @@ contract SimpleInitPool is Script {
         // Initialize pool
         console.log("\nInitializing Uniswap V3 pool...");
         wsXMRLiquidityRouter router = wsXMRLiquidityRouter(payable(ROUTER));
-        router.initializePool(xmrPrice);
+        router.initializePool(xmrPrice, 1e18);
         
         console.log("\n=== SUCCESS ===");
         console.log("Pool:", router.pool());

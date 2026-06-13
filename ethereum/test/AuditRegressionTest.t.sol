@@ -78,6 +78,9 @@ contract AuditRegressionTest is Test {
 
         wsxmr.setHub(address(hub));
 
+        // Fund MockSavingsDAI wrapper with WETH so redeem() works
+        deal(GnosisAddresses.XDAI, GnosisAddresses.SDAI, 100000 ether);
+
         // Seed attacker with wsXMR for potential abuse
         deal(address(wsxmr), attacker, 1_000_000e8);
     }

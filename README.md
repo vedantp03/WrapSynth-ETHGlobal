@@ -34,6 +34,35 @@ WrapSynth brings Monero's anonymity set to DeFi and DeFi liquidity to Monero. Us
 - ✅ 633-line solvency invariant test suite + audit regression suite
 - 🔄 Solana port in development (`solana/`)
 
+### Base Sepolia Deployment (ChainID 84532)
+
+| Contract | Address |
+|---|---|
+| wsXMR Token | [`0x81AaB8b92b38d0ab60B99b4aF12edaEE92b9C0C4`](https://sepolia.basescan.org/address/0x81AaB8b92b38d0ab60B99b4aF12edaEE92b9C0C4) |
+| wsXmrHub | [`0x0454983E17b803a2C6ff0d98d5D58676525F4A92`](https://sepolia.basescan.org/address/0x0454983E17b803a2C6ff0d98d5D58676525F4A92) |
+| Liquidity Router | [`0x95adc386C3625a539785EF4b3C949f7c1497D268`](https://sepolia.basescan.org/address/0x95adc386C3625a539785EF4b3C949f7c1497D268) |
+| wsXMR/WETH UniV3 Pool | [`0x639664438B2BDD0cBf29397dE8E14803029700C7`](https://sepolia.basescan.org/address/0x639664438B2BDD0cBf29397dE8E14803029700C7) |
+| WETH | [`0x4200000000000000000000000000000000000006`](https://sepolia.basescan.org/address/0x4200000000000000000000000000000000000006) |
+| MockSavingsDAI (ERC4626 WETH wrapper) | [`0xd25f4095f623916074255FE4294f6b8B4DEf5f24`](https://sepolia.basescan.org/address/0xd25f4095f623916074255FE4294f6b8B4DEf5f24) |
+| Ed25519Helper | [`0x8D7DD0A1FD26A2602837B028afB7A1f1b21DA9E7`](https://sepolia.basescan.org/address/0x8D7DD0A1FD26A2602837B028afB7A1f1b21DA9E7) |
+
+<details>
+<summary>Facet addresses</summary>
+
+| Facet | Address |
+|---|---|
+| ChainlinkDataStreamsOracleFacet | [`0x6689612924f0d88219e1b63255956eb866d6992a`](https://sepolia.basescan.org/address/0x6689612924f0d88219e1b63255956eb866d6992a) |
+| VaultFacet | [`0xd66a00d99ff0f4d27277f106ceee4d94972c17c8`](https://sepolia.basescan.org/address/0xd66a00d99ff0f4d27277f106ceee4d94972c17c8) |
+| MintFacet | [`0xcd14533cd779f274aa318de62f86f4bc32443cf2`](https://sepolia.basescan.org/address/0xcd14533cd779f274aa318de62f86f4bc32443cf2) |
+| BurnFacet | [`0xa71909c305ff7250b7043fee16347edf053e451e`](https://sepolia.basescan.org/address/0xa71909c305ff7250b7043fee16347edf053e451e) |
+| LiquidationFacet | [`0x6820a01fb2ff6bec7d44672938ba84e90631f5c7`](https://sepolia.basescan.org/address/0x6820a01fb2ff6bec7d44672938ba84e90631f5c7) |
+| YieldFacet | [`0x6d74451311e153cbe393c056e0acb6bd6769ae72`](https://sepolia.basescan.org/address/0x6d74451311e153cbe393c056e0acb6bd6769ae72) |
+
+**Oracle config:** Chainlink Data Streams testnet — XMR/USD feed `0x0003c70558bd921b1559d37b8e347797f121d1240e7386e68b2bee9b731b0833`, ETH/USD feed `0x000359843a543ee2fe414dc14c7e7920ef10f4372990b79d6361cdc0dd1ba782`
+
+Full deployment manifest: [`deployment.json`](./deployment.json)
+</details>
+
 ### Original Deployed Contracts (Gnosis Chain, ChainID 100)
 
 | Contract | Address |
@@ -84,7 +113,7 @@ All protocol state and collateral live in a single contract, **wsXmrHub**, which
 ### Key components
 
 - **Ed25519 on-chain verification** — atomic swap secrets are Ed25519 scalars; the contract computes `scalarMultBase(secret)` and checks it against the user's commitment, binding settlement to the same key material used on the Monero side
-- **sDAI collateral** — LP vaults are denominated in Savings DAI, so idle collateral earns the DSR; **YieldFacet** harvests and accounts for vault yield
+- **WETH collateral** — LP vaults are denominated in an ERC4626 wrapper around WETH (MockSavingsDAI), so idle collateral earns yield; **YieldFacet** harvests and accounts for vault yield
 - **Co-LP liquidity router** — `wsXMRLiquidityRouter` deploys vault collateral as Uniswap V3 concentrated liquidity paired against user-supplied wsXMR, putting backing capital to work instead of letting it sit idle
 - **Oracle facet** — RedStone-style oracle with an off-chain price pusher keeping XMR/USD fresh on-chain
 - **LP node** (`ethereum/lp-node/`, Rust) — monitors events, manages Monero RPC, prices quotes, runs arbitrage, and exposes a REST API for the frontend
@@ -111,7 +140,7 @@ All protocol state and collateral live in a single contract, **wsXmrHub**, which
 
 ### For Liquidity Providers
 
-1. Create a vault and deposit sDAI via **VaultFacet** (minimum 150% collateral ratio; 180% target)
+1. Create a vault and deposit WETH via **VaultFacet** (minimum 150% collateral ratio; 180% target)
 2. Optionally deploy collateral into the co-LP Uniswap V3 position via the router
 3. Run the LP node to serve mint/burn flow automatically
 4. Earn mint/burn fees + sDAI yield + LP fees; keep ratio above the 120% liquidation threshold

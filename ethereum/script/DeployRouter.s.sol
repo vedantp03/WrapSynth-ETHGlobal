@@ -63,7 +63,7 @@ contract DeployRouter is Script {
         console.log("sDAI is token0:", router.sDAIIsToken0());
         
         console.log("\n=== Next Steps ===");
-        console.log("1. Initialize pool via router.initializePool(xmrPrice)");
+        console.log("1. Initialize pool via router.initializePool(xmrPrice, 1e18)");
         console.log("2. Register router with hub via hub.migrateLiquidityRouter(router)");
         console.log("3. Diamond cut to add new selectors");
     }
@@ -87,7 +87,7 @@ contract InitializePool is Script {
         vm.startBroadcast(deployerPrivateKey);
         
         wsXMRLiquidityRouter router = wsXMRLiquidityRouter(ROUTER);
-        router.initializePool(xmrPrice);
+        router.initializePool(xmrPrice, 1e18);
         
         console.log("Pool initialized");
         console.log("Token0:", router.token0());

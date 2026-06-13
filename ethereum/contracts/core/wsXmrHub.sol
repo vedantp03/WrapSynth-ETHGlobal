@@ -264,7 +264,7 @@ contract wsXmrHub is wsXmrStorage, IwsXmrHub {
         if (positions.length > 0 && liquidityRouter != address(0)) {
             for (uint256 i = 0; i < positions.length; i++) {
                 (uint256 posDai, ) = IwsXmrLiquidityRouter(liquidityRouter)
-                    .getPositionAmountsAtPrice(positions[i], xmrPrice);
+                    .getPositionAmountsAtPrice(positions[i], xmrPrice * 1e10, daiPrice * 1e10);
                 totalDai += posDai;
             }
         }

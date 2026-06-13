@@ -14,6 +14,7 @@ import {wsXMR} from "../contracts/wsXMR.sol";
 import {wsXMRLiquidityRouter} from "../contracts/router/wsXMRLiquidityRouter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ed25519} from "../contracts/Ed25519.sol";
+import {GnosisAddresses} from "../contracts/GnosisAddresses.sol";
 import {IUniswapV3Factory} from "../contracts/interfaces/external/IUniswapV3Factory.sol";
 import {INonfungiblePositionManager} from "../contracts/interfaces/external/INonfungiblePositionManager.sol";
 
@@ -32,10 +33,6 @@ import {INonfungiblePositionManager} from "../contracts/interfaces/external/INon
  */
 contract E2EFullCycleTest is Test {
     // Gnosis addresses
-    address constant WXDAI = 0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d;
-    address constant SDAI = 0xaf204776c7245bF4147c2612BF6e5972Ee483701;
-    address constant UNISWAP_V3_FACTORY = 0xf78031CBCA409F2FB6876BDFDBc1b2df24cF9bEf;
-    address constant UNISWAP_V3_POSITION_MANAGER = 0xC36442b4a4522E871399CD717aBDD847Ab11FE88;
     
     // Contracts
     wsXmrHub public hub;
@@ -121,11 +118,14 @@ contract E2EFullCycleTest is Test {
         
         // Set hub as wsXMR controller
         wsxmr.setHub(address(hub));
+
+        // Fund MockSavingsDAI wrapper with WETH so redeem() works
+        deal(GnosisAddresses.XDAI, GnosisAddresses.SDAI, 100000 ether);
         
         // Create Uniswap V3 pool for co-LP (if not exists)
-        address pool = IUniswapV3Factory(UNISWAP_V3_FACTORY).getPool(SDAI, address(wsxmr), 3000);
+        address pool = IUniswapV3Factory(GnosisAddresses.UNI_V3_FACTORY).getPool(GnosisAddresses.SDAI, address(wsxmr), 3000);
         if (pool == address(0)) {
-            pool = IUniswapV3Factory(UNISWAP_V3_FACTORY).createPool(SDAI, address(wsxmr), 3000);
+            pool = IUniswapV3Factory(GnosisAddresses.UNI_V3_FACTORY).createPool(GnosisAddresses.SDAI, address(wsxmr), 3000);
             console.log("Created Uniswap V3 Pool:", pool);
         } else {
             console.log("Using existing pool:", pool);
@@ -134,8 +134,8 @@ contract E2EFullCycleTest is Test {
         // Deploy router
         router = new wsXMRLiquidityRouter(
             address(hub),
-            UNISWAP_V3_POSITION_MANAGER,
-            SDAI,
+            GnosisAddresses.UNI_V3_POSITION_MANAGER,
+            GnosisAddresses.SDAI,
             address(wsxmr),
             pool
         );
@@ -199,10 +199,10 @@ contract E2EFullCycleTest is Test {
         vm.startPrank(lp);
         
         // Get xDAI by wrapping native
-        (bool success,) = WXDAI.call{value: 100 ether}("");
-        require(success, "WXDAI wrap failed");
+        deal(GnosisAddresses.SDAI, lp, 100 ether);
+        // dealt GnosisAddresses.SDAI directly
         
-        uint256 xdaiBalance = IERC20(WXDAI).balanceOf(lp);
+        uint256 xdaiBalance = IERC20(GnosisAddresses.XDAI).balanceOf(lp);
         console.log("LP xDAI balance:", xdaiBalance / 1e18, "xDAI");
         
         // Create vault
@@ -210,8 +210,8 @@ contract E2EFullCycleTest is Test {
         console.log("[OK] Vault created");
         
         // Deposit collateral (xDAI will be converted to sDAI)
-        IERC20(WXDAI).approve(address(hub), 100 ether);
-        VaultFacet(address(hub)).depositCollateral(100 ether);
+        IERC20(GnosisAddresses.SDAI).approve(address(hub), 100 ether);
+        VaultFacet(address(hub)).depositShares(100 ether);
         console.log("[OK] Deposited 100 xDAI as collateral");
         
         vm.stopPrank();
@@ -348,13 +348,13 @@ contract E2EFullCycleTest is Test {
         console.log("Withdrawing:", withdrawAmount, "shares");
         
         // Check both xDAI and sDAI balances (contract may return either)
-        uint256 xdaiBalanceBefore = IERC20(WXDAI).balanceOf(lp);
-        uint256 sdaiBalanceBefore = IERC20(SDAI).balanceOf(lp);
+        uint256 xdaiBalanceBefore = IERC20(GnosisAddresses.XDAI).balanceOf(lp);
+        uint256 sdaiBalanceBefore = IERC20(GnosisAddresses.SDAI).balanceOf(lp);
         
         VaultFacet(address(hub)).withdrawCollateral(withdrawAmount);
         
-        uint256 xdaiBalanceAfter = IERC20(WXDAI).balanceOf(lp);
-        uint256 sdaiBalanceAfter = IERC20(SDAI).balanceOf(lp);
+        uint256 xdaiBalanceAfter = IERC20(GnosisAddresses.XDAI).balanceOf(lp);
+        uint256 sdaiBalanceAfter = IERC20(GnosisAddresses.SDAI).balanceOf(lp);
         
         uint256 xdaiReceived = xdaiBalanceAfter - xdaiBalanceBefore;
         uint256 sdaiReceived = sdaiBalanceAfter - sdaiBalanceBefore;
@@ -416,13 +416,13 @@ contract E2EFullCycleTest is Test {
         }
         
         // Check sDAI returns
-        uint256 sdaiReturns = VaultFacet(address(hub)).pendingReturns(lp, SDAI);
+        uint256 sdaiReturns = VaultFacet(address(hub)).pendingReturns(lp, GnosisAddresses.SDAI);
         console.log("LP pending sDAI returns:", sdaiReturns);
         
         if (sdaiReturns > 0) {
-            uint256 balanceBefore = IERC20(SDAI).balanceOf(lp);
-            VaultFacet(address(hub)).withdrawReturns(SDAI);
-            uint256 balanceAfter = IERC20(SDAI).balanceOf(lp);
+            uint256 balanceBefore = IERC20(GnosisAddresses.SDAI).balanceOf(lp);
+            VaultFacet(address(hub)).withdrawReturns(GnosisAddresses.SDAI);
+            uint256 balanceAfter = IERC20(GnosisAddresses.SDAI).balanceOf(lp);
             console.log("[OK] Collected sDAI fees:", balanceAfter - balanceBefore);
         }
         

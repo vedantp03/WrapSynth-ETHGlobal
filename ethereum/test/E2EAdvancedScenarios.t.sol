@@ -13,6 +13,7 @@ import {YieldFacet} from "../contracts/facets/YieldFacet.sol";
 import {wsXMR} from "../contracts/wsXMR.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ed25519} from "../contracts/Ed25519.sol";
+import {GnosisAddresses} from "../contracts/GnosisAddresses.sol";
 
 /**
  * @title E2E Advanced Scenarios Test
@@ -20,9 +21,6 @@ import {Ed25519} from "../contracts/Ed25519.sol";
  * @dev Demonstrates the power of controlling the oracle and time in tests
  */
 contract E2EAdvancedScenariosTest is Test {
-    address constant WXDAI = 0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d;
-    address constant SDAI = 0xaf204776c7245bF4147c2612BF6e5972Ee483701;
-    
     wsXmrHub public hub;
     wsXMR public wsxmr;
     SimpleOracleFacet public oracleFacet;
@@ -86,14 +84,15 @@ contract E2EAdvancedScenariosTest is Test {
         
         wsxmr.setHub(address(hub));
         
+        // Fund MockSavingsDAI wrapper with WETH so redeem() works
+        deal(GnosisAddresses.XDAI, GnosisAddresses.SDAI, 100000 ether);
+        
         // Set initial prices
         SimpleOracleFacet(address(hub)).updatePrices(INITIAL_XMR_PRICE, INITIAL_DAI_PRICE);
     }
     
     function _setupVault(address lp, uint256 collateralAmount) internal {
         vm.startPrank(lp);
-        (bool success,) = WXDAI.call{value: collateralAmount}("");
-        require(success);
         
         VaultFacet(address(hub)).createVault();
         VaultFacet(address(hub)).setMaxMintBps(0);
@@ -101,8 +100,9 @@ contract E2EAdvancedScenariosTest is Test {
         VaultFacet(address(hub)).setMintGriefingDeposit(0.001 ether);
         VaultFacet(address(hub)).setMintReadyBond(0.001 ether);
         
-        IERC20(WXDAI).approve(address(hub), collateralAmount);
-        VaultFacet(address(hub)).depositCollateral(collateralAmount);
+        deal(GnosisAddresses.SDAI, lp, collateralAmount);
+        IERC20(GnosisAddresses.SDAI).approve(address(hub), collateralAmount);
+        VaultFacet(address(hub)).depositShares(collateralAmount);
         vm.stopPrank();
     }
     
@@ -166,11 +166,11 @@ contract E2EAdvancedScenariosTest is Test {
         _performMint(lp1, liquidator, 20000000); // 0.2 XMR to liquidate
         
         vm.startPrank(liquidator);
-        uint256 collateralBefore = IERC20(SDAI).balanceOf(liquidator);
+        uint256 collateralBefore = IERC20(GnosisAddresses.SDAI).balanceOf(liquidator);
         
         // Try to liquidate - use a reasonable amount (5M wsXMR)
         try LiquidationFacet(address(hub)).liquidate(lp1, 5000000) {
-            uint256 collateralAfter = IERC20(SDAI).balanceOf(liquidator);
+            uint256 collateralAfter = IERC20(GnosisAddresses.SDAI).balanceOf(liquidator);
             console.log("[6] Liquidator received collateral:", collateralAfter - collateralBefore);
             console.log("[7] Liquidation bonus earned: 10%");
         } catch {
@@ -247,10 +247,10 @@ contract E2EAdvancedScenariosTest is Test {
         vm.roll(block.number + 2160);
         
         // User can now claim slashed collateral
-        uint256 collateralBefore = IERC20(SDAI).balanceOf(user1);
+        uint256 collateralBefore = IERC20(GnosisAddresses.SDAI).balanceOf(user1);
         vm.prank(user1);
         BurnFacet(address(hub)).claimSlashedCollateral(burnRequestId);
-        uint256 collateralAfter = IERC20(SDAI).balanceOf(user1);
+        uint256 collateralAfter = IERC20(GnosisAddresses.SDAI).balanceOf(user1);
         
         console.log("[6] User1 claimed slashed collateral:", collateralAfter - collateralBefore);
         console.log("[7] LP1 was slashed for not revealing secret!");

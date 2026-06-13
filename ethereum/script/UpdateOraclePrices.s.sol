@@ -34,7 +34,7 @@ contract UpdatePrices is Script {
         // Initialize pool
         console.log("\nInitializing Uniswap V3 pool...");
         wsXMRLiquidityRouter router = wsXMRLiquidityRouter(payable(ROUTER));
-        router.initializePool(XMR_PRICE * 1e10);
+        router.initializePool(XMR_PRICE * 1e10, 1e18);
         
         console.log("\n=== Pool Initialized ===");
         console.log("Pool Address:", router.pool());

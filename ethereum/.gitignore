@@ -13,3 +13,8 @@ docs/
 
 # Dotenv file
 .env
+
+# Foundry artifacts
+broadcast/
+cache_forge/
+out/

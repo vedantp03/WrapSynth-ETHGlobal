@@ -13,6 +13,7 @@ import {wsXMR} from "../contracts/wsXMR.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {wsXmrStorage} from "../contracts/core/wsXmrStorage.sol";
 import {Ed25519} from "../contracts/Ed25519.sol";
+import {GnosisAddresses} from "../contracts/GnosisAddresses.sol";
 
 contract MockVerifierProxy {
     function verify(bytes calldata) external pure returns (bool) {
@@ -21,7 +22,6 @@ contract MockVerifierProxy {
 }
 
 contract E2EComprehensiveTest is Test {
-    address constant WXDAI = 0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d;
     
     wsXmrHub public hub;
     wsXMR public wsxmr;
@@ -72,6 +72,9 @@ contract E2EComprehensiveTest is Test {
         );
         
         wsxmr.setHub(address(hub));
+
+        // Fund MockSavingsDAI wrapper with WETH so redeem() works
+        deal(GnosisAddresses.XDAI, GnosisAddresses.SDAI, 100000 ether);
         
         // Update prices after warp (before any vault operations)
         SimpleOracleFacet(address(hub)).updatePrices(390_00000000, 1_00000000);
@@ -84,10 +87,10 @@ contract E2EComprehensiveTest is Test {
         VaultFacet(address(hub)).setMintGriefingDeposit(0.001 ether);
         VaultFacet(address(hub)).setMintReadyBond(0.001 ether);
         
-        (bool success,) = WXDAI.call{value: 100 ether}("");
-        require(success);
-        IERC20(WXDAI).approve(address(hub), 100 ether);
-        VaultFacet(address(hub)).depositCollateral(100 ether);
+        deal(GnosisAddresses.SDAI, lp, 100 ether);
+        // dealt SDAI directly
+        IERC20(GnosisAddresses.SDAI).approve(address(hub), 100 ether);
+        VaultFacet(address(hub)).depositShares(100 ether);
         vm.stopPrank();
     }
     
