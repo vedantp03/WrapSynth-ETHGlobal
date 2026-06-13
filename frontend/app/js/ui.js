@@ -461,18 +461,21 @@ export function populateVaults(vaults) {
                 const usedRaw = v.usedCollateral !== undefined ? v.usedCollateral : 0;
                 const pendingRaw = v.pendingCollateral !== undefined ? v.pendingCollateral : 0;
                 const bufferRaw = v.bufferCollateral !== undefined ? v.bufferCollateral : 0;
+                const colpRaw = v.coLPCollateral !== undefined ? v.coLPCollateral : 0;
                 const freeRaw = v.freeCollateral !== undefined ? v.freeCollateral : (v.collateral ? Number(v.collateral) / 1e18 : 0);
                 const usedAmount = fmtCapacity(usedRaw);
                 const pendingAmount = fmtCapacity(pendingRaw);
                 const bufferAmount = fmtCapacity(bufferRaw);
+                const colpAmount = fmtCapacity(colpRaw);
                 const freeAmount = fmtCapacity(freeRaw);
-                const totalCap = usedRaw + pendingRaw + bufferRaw + freeRaw;
+                const totalCap = usedRaw + pendingRaw + bufferRaw + colpRaw + freeRaw;
                 const usedPct = totalCap > 0 ? (usedRaw / totalCap) * 100 : 0;
                 const pendingPct = totalCap > 0 ? (pendingRaw / totalCap) * 100 : 0;
                 const bufferPct = totalCap > 0 ? (bufferRaw / totalCap) * 100 : 0;
+                const colpPct = totalCap > 0 ? (colpRaw / totalCap) * 100 : 0;
                 const freePct = totalCap > 0 ? (freeRaw / totalCap) * 100 : 0;
-                const pieSvg = totalCap > 0 ? makePieChart(usedPct, pendingPct, bufferPct, freePct) : '';
-                console.log('Vault chart:', { usedRaw, pendingRaw, bufferRaw, freeRaw, usedPct, pendingPct, bufferPct, freePct, pieSvg: pieSvg.slice(0, 80) });
+                const pieSvg = totalCap > 0 ? makePieChart(usedPct, pendingPct, bufferPct, colpPct, freePct) : '';
+                console.log('Vault chart:', { usedRaw, pendingRaw, bufferRaw, colpRaw, freeRaw, usedPct, pendingPct, bufferPct, colpPct, freePct, pieSvg: pieSvg.slice(0, 80) });
 
                 return `
                 <div class="vault-item">
@@ -505,6 +508,13 @@ export function populateVaults(vaults) {
                                     <span class="legend-value">${bufferAmount} ETH</span>
                                 </div>
                             </div>
+                            ${colpRaw > 0 ? `<div class="legend-row">
+                                <span class="legend-dot colp-dot"></span>
+                                <div class="legend-text">
+                                    <span class="legend-label">Co-LP deployed:</span>
+                                    <span class="legend-value">${colpAmount} ETH</span>
+                                </div>
+                            </div>` : ''}
                             <div class="legend-row">
                                 <span class="legend-dot free-dot"></span>
                                 <div class="legend-text">
@@ -1124,9 +1134,9 @@ function fmtCapacity(val) {
 
 /**
  * Generate inline SVG donut chart for vault capacity
- * Slices: used (orange), pending (purple), buffer (yellow), free (green)
+ * Slices: used (orange), pending (purple), buffer (yellow), colp (blue), free (green)
  */
-function makePieChart(usedPct, pendingPct, bufferPct, freePct) {
+function makePieChart(usedPct, pendingPct, bufferPct, colpPct, freePct) {
     const size = 64;
     const cx = size / 2;
     const cy = size / 2;
@@ -1138,33 +1148,39 @@ function makePieChart(usedPct, pendingPct, bufferPct, freePct) {
     let usedLen = +(usedPct / 100 * circ).toFixed(2);
     let pendingLen = +(pendingPct / 100 * circ).toFixed(2);
     let bufferLen = +(bufferPct / 100 * circ).toFixed(2);
+    let colpLen = +(colpPct / 100 * circ).toFixed(2);
     let freeLen = +(freePct / 100 * circ).toFixed(2);
 
     // Clamp
     usedLen = Math.min(usedLen, circ);
     pendingLen = Math.min(pendingLen, circ);
     bufferLen = Math.min(bufferLen, circ);
+    colpLen = Math.min(colpLen, circ);
     freeLen = Math.min(freeLen, circ);
 
     // Guard against NaN / Infinity
     if (!Number.isFinite(usedLen)) usedLen = 0;
     if (!Number.isFinite(pendingLen)) pendingLen = 0;
     if (!Number.isFinite(bufferLen)) bufferLen = 0;
+    if (!Number.isFinite(colpLen)) colpLen = 0;
     if (!Number.isFinite(freeLen)) freeLen = circ;
 
     // Build SVG — stacked circles with dash offsets
     const usedDash = `${usedLen} ${circ}`;
     const pendingDash = `${pendingLen} ${circ}`;
     const bufferDash = `${bufferLen} ${circ}`;
+    const colpDash = `${colpLen} ${circ}`;
     const freeDash = `${freeLen} ${circ}`;
     const pendingOff = -usedLen;
     const bufferOff = -(usedLen + pendingLen);
-    const freeOff = -(usedLen + pendingLen + bufferLen);
+    const colpOff = -(usedLen + pendingLen + bufferLen);
+    const freeOff = -(usedLen + pendingLen + bufferLen + colpLen);
 
     return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="vault-pie">
         <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#f97316" stroke-width="${strokeW}" stroke-dasharray="${usedDash}" transform="rotate(-90 ${cx} ${cy})"/>
         <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#a855f7" stroke-width="${strokeW}" stroke-dasharray="${pendingDash}" stroke-dashoffset="${pendingOff}" transform="rotate(-90 ${cx} ${cy})"/>
         <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#eab308" stroke-width="${strokeW}" stroke-dasharray="${bufferDash}" stroke-dashoffset="${bufferOff}" transform="rotate(-90 ${cx} ${cy})"/>
+        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#3b82f6" stroke-width="${strokeW}" stroke-dasharray="${colpDash}" stroke-dashoffset="${colpOff}" transform="rotate(-90 ${cx} ${cy})"/>
         <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#10b981" stroke-width="${strokeW}" stroke-dasharray="${freeDash}" stroke-dashoffset="${freeOff}" transform="rotate(-90 ${cx} ${cy})"/>
         <circle cx="${cx}" cy="${cy}" r="${r - strokeW / 2}" fill="var(--bg-card-light)"/>
     </svg>`;

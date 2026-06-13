@@ -23,28 +23,37 @@ export class MintFlow {
     }
 
     async start(lpVault, xmrAmount) {
-        console.log('Starting mint flow:', { lpVault, xmrAmount });
+        try {
+            console.log('Starting mint flow:', { lpVault, xmrAmount });
 
-        if (xmrAmount <= 0) {
-            throw new Error('Amount must be greater than 0');
+            if (xmrAmount <= 0) {
+                throw new Error('Amount must be greater than 0');
+            }
+
+            this.lpVault = lpVault;
+            this.xmrAmount = xmrAmount;
+            this.timeoutDuration = SWAP_CONFIG.defaultTimeout;
+
+            // Setup cancel button
+            this.setupCancelButton();
+
+            await this.getQuote();
+            await this.initializeAgent();
+            await this.checkOracleFreshness();
+            await this.initiateOnEVM();
+            await this.notifyLP();
+            if (this.state === 'expired') return;
+            await this.waitForLPReady();
+            if (this.state === 'expired') return;
+            await this.finalize();
+        } catch (error) {
+            console.error('Mint flow failed:', error);
+            this.state = 'error';
+            updateSwapState({ state: 'error', message: error.message });
+            const { showError } = await import('./ui.js');
+            showError('Mint Failed', error.message || 'An unexpected error occurred during the mint flow.');
+            throw error;
         }
-
-        this.lpVault = lpVault;
-        this.xmrAmount = xmrAmount;
-        this.timeoutDuration = SWAP_CONFIG.defaultTimeout;
-
-        // Setup cancel button
-        this.setupCancelButton();
-
-        await this.getQuote();
-        await this.initializeAgent();
-        await this.checkOracleFreshness();
-        await this.initiateOnEVM();
-        await this.notifyLP();
-        if (this.state === 'expired') return;
-        await this.waitForLPReady();
-        if (this.state === 'expired') return;
-        await this.finalize();
     }
 
     setupCancelButton() {
@@ -201,21 +210,50 @@ export class MintFlow {
     async checkOracleFreshness() {
         console.log('Checking oracle freshness...');
 
+        // Dev escape hatch: set window.SKIP_ORACLE_CHECK = true in console to bypass
+        // (useful when the report proxy isn't running locally)
+        if (typeof window !== 'undefined' && window.SKIP_ORACLE_CHECK) {
+            console.warn('SKIP_ORACLE_CHECK is set — bypassing oracle freshness check');
+            return;
+        }
+
         let xmrFresh = false;
         let collateralFresh = false;
+        let xmrError = null;
+        let collateralError = null;
 
         try {
             await readHub('getXmrPrice', []);
             xmrFresh = true;
         } catch (error) {
-            console.warn('XMR price is stale');
+            xmrError = error;
+            const msg = error.message || '';
+            const isStale = msg.includes('0x19abf40e') || msg.includes('StalePrice');
+            const isTransient = /429|rate limit|timeout|fetch failed|connection refused|network|temporary/i.test(msg);
+            if (isTransient) {
+                console.warn('XMR price check failed due to transient RPC error:', msg);
+            } else if (isStale) {
+                console.warn('XMR price is stale');
+            } else {
+                console.warn('XMR price check failed:', msg);
+            }
         }
 
         try {
             await readHub('getCollateralPrice', []);
             collateralFresh = true;
         } catch (error) {
-            console.warn('Collateral price is stale');
+            collateralError = error;
+            const msg = error.message || '';
+            const isStale = msg.includes('0x19abf40e') || msg.includes('StalePrice');
+            const isTransient = /429|rate limit|timeout|fetch failed|connection refused|network|temporary/i.test(msg);
+            if (isTransient) {
+                console.warn('Collateral price check failed due to transient RPC error:', msg);
+            } else if (isStale) {
+                console.warn('Collateral price is stale');
+            } else {
+                console.warn('Collateral price check failed:', msg);
+            }
         }
 
         if (xmrFresh && collateralFresh) {
@@ -292,24 +330,47 @@ export class MintFlow {
                     await this.updatePrices();
                     console.log('Fresh prices pushed, retrying initiateMint...');
                 } catch (updateErr) {
-                    console.warn('Price update failed:', updateErr.message);
+                    const updateMsg = updateErr.message || '';
+                    const isProxyDown = /connection refused|failed to fetch|ECONNREFUSED/i.test(updateMsg);
+                    console.warn('Price update failed:', updateMsg);
+
+                    if (isProxyDown) {
+                        console.warn('Report proxy at localhost:3002 appears to be down.');
+                    }
+
                     // Fall back to polling if proactive update fails
                     let fresh = false;
-                    for (let i = 0; i < 20; i++) {
-                        await new Promise(r => setTimeout(r, 3000));
+                    const maxAttempts = 8;
+                    for (let i = 0; i < maxAttempts; i++) {
+                        // Exponential backoff: 3s, 4.5s, 6s, 7.5s, 9s, 10.5s, 12s, 13.5s = ~66s total max
+                        const delayMs = Math.min(3000 + i * 1500, 15000);
+                        updateMintProgress('evm-init', `Waiting for oracle prices to become fresh... (attempt ${i + 1}/${maxAttempts}, ${Math.round(delayMs / 1000)}s)`);
+                        await new Promise(r => setTimeout(r, delayMs));
                         try {
                             await readHub('getXmrPrice', []);
                             await readHub('getCollateralPrice', []);
                             fresh = true;
+                            console.log(`Oracle prices became fresh after ${i + 1} polling attempts`);
                             break;
                         } catch (pollError) {
-                            if (!pollError.message.includes('0x19abf40e') && !pollError.message.includes('StalePrice')) {
+                            const msg = pollError.message || '';
+                            const isStale = msg.includes('0x19abf40e') || msg.includes('StalePrice');
+                            const isTransient = /429|rate limit|timeout|fetch failed|connection refused|network|temporary/i.test(msg);
+                            if (!isStale && !isTransient) {
                                 throw pollError;
+                            }
+                            if (isTransient) {
+                                console.warn(`Transient RPC error during price polling (attempt ${i + 1}/${maxAttempts}):`, msg);
                             }
                         }
                     }
                     if (!fresh) {
-                        throw new Error('Oracle prices are still stale after 60 seconds. Please wait for the LP node to update prices, then try again.');
+                        throw new Error(
+                            'Oracle prices are still stale. ' +
+                            'The report proxy (localhost:3002) is not running. ' +
+                            'Start it with: node frontend/report-proxy/server.js  ' +
+                            'Or set window.SKIP_ORACLE_CHECK = true in the console to bypass for testing.'
+                        );
                     }
                 }
 

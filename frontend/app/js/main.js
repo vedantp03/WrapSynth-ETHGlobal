@@ -1906,15 +1906,32 @@ async function loadVaults() {
                     const pendingCollateral = collPrice > 0 ? pendingDebtValueUsd / collPrice : 0;
                     // Buffer = extra 50% collateral required to maintain 150% ratio (on total debt)
                     const bufferCollateral = (usedCollateral + pendingCollateral) * 0.5;
-                    const freeCollateral = Math.max(0, collAmountETH - usedCollateral - pendingCollateral - bufferCollateral);
+                    // Co-LP deployed collateral (tracked separately from lockedCollateral)
+                    const coLPShares = BigInt(vaultData.deployedSDAIShares?.toString?.() ?? '0');
+                    let coLPCollateral = Number(coLPShares) / 1e18;
+                    try {
+                        if (coLPShares > 0n) {
+                            const coLPAssetsWei = await publicClient.readContract({
+                                address: collateralAddress,
+                                abi: collateralAbi,
+                                functionName: 'convertToAssets',
+                                args: [coLPShares]
+                            });
+                            coLPCollateral = Number(coLPAssetsWei) / 1e18;
+                        }
+                    } catch (e) {
+                        console.warn('convertToAssets for co-LP shares failed, using 1:1 fallback:', e.message);
+                    }
+                    const freeCollateral = Math.max(0, collAmountETH - usedCollateral - pendingCollateral - bufferCollateral - coLPCollateral);
                     
                     console.log('💰 CAPACITY BREAKDOWN:', {
                         collAmountETH,
                         usedCollateral,
                         pendingCollateral,
                         bufferCollateral,
+                        coLPCollateral,
                         freeCollateral,
-                        calculation: `${collAmountETH.toFixed(4)} - ${usedCollateral.toFixed(4)} - ${pendingCollateral.toFixed(4)} - ${bufferCollateral.toFixed(4)} = ${freeCollateral.toFixed(4)}`
+                        calculation: `${collAmountETH.toFixed(4)} - ${usedCollateral.toFixed(4)} - ${pendingCollateral.toFixed(4)} - ${bufferCollateral.toFixed(4)} - ${coLPCollateral.toFixed(4)} = ${freeCollateral.toFixed(4)}`
                     });
 
                     console.log('Vault capacity:', {
@@ -1933,6 +1950,7 @@ async function loadVaults() {
                         usedCollateral,
                         pendingCollateral,
                         bufferCollateral,
+                        coLPCollateral,
                         freeCollateral
                     });
 
@@ -1959,6 +1977,7 @@ async function loadVaults() {
                         usedCollateral,
                         pendingCollateral,
                         bufferCollateral,
+                        coLPCollateral,
                         freeCollateral,
                         maxMintCapacityXmr,
                     };

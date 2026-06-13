@@ -28,7 +28,9 @@ function getTransport() {
     // Always use HTTP RPCs for public reads so they always hit Base Sepolia,
     // regardless of which chain the user's wallet happens to be on.
     // Wallet provider is still used for walletClient (writes).
-    const transports = NETWORKS.baseSepolia.rpcUrls.map(url => http(url));
+    const transports = NETWORKS.baseSepolia.rpcUrls.map(url =>
+        http(url, { retryCount: 3, retryDelay: 1500, timeout: 15000 })
+    );
     return fallback(transports, { rank: false });
 }
 
