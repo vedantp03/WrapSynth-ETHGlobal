@@ -5,11 +5,25 @@
  */
 
 const { ethers } = require('ethers');
+const { execSync } = require('child_process');
+const path = require('path');
 
-const HUB_ADDRESS = '0x15bb9ba8236De055090a262F45a7e213F6040320';
-const WSXMR_ADDRESS = '0x9B8d1851bCc06ac265c1c1ACaBD0F71E69DD312c';
-const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
-const ED25519_HELPER = '0xd821a7d919e007b6b39925f672f1219db4865fba';
+const PROXY_DIR = path.join(__dirname, '../../frontend/report-proxy');
+
+function fetchReport(feedId) {
+    const out = execSync(`node "${path.join(PROXY_DIR, 'fetchReportHex.js')}" ${feedId}`, {
+        encoding: 'utf8',
+        env: { ...process.env, NODE_NO_WARNINGS: '1' }
+    });
+    return out.trim();
+}
+
+const HUB_ADDRESS = '0x0454983E17b803a2C6ff0d98d5D58676525F4A92';
+const WSXMR_ADDRESS = '0x81AaB8b92b38d0ab60B99b4aF12edaEE92b9C0C4';
+const SDAI_ADDRESS = '0xd25f4095f623916074255FE4294f6b8B4DEf5f24';
+const ED25519_HELPER = '0x8D7DD0A1FD26A2602837B028afB7A1f1b21DA9E7';
+const XMR_FEED = '0x0003c70558bd921b1559d37b8e347797f121d1240e7386e68b2bee9b731b0833';
+const ETH_FEED = '0x000359843a543ee2fe414dc14c7e7920ef10f4372990b79d6361cdc0dd1ba782';
 
 async function main() {
     if (!process.env.PRIVATE_KEY) {
@@ -44,7 +58,7 @@ async function main() {
         'function provideLPKey(bytes32 requestId, bytes32 lpPublicSpendKey, bytes32 lpPublicViewKey) external',
         'function setMintReady(bytes32 requestId) external payable',
         'function finalizeMint(bytes32 requestId, bytes32 secret) external',
-        'function updatePrices(uint256 xmrPrice, uint256 daiPrice) external',
+        'function updateOraclePrices(bytes[] calldata updateData) external payable',
         'event CoLPDeployed(address indexed lpVault, address indexed user, uint256 indexed tokenId, uint256 sDAIShares, uint256 wsxmrAmount, uint16 rangeBps)',
         'event CoLPUnwound(uint256 indexed tokenId, address indexed vaultOwner, address indexed user, uint256 sDAIReturned, uint256 wsxmrReturned)'
     ];
@@ -55,11 +69,11 @@ async function main() {
         'function decimals() external view returns (uint8)'
     ];
 
-    const wethAbi = [
+    const sdaiAbi = [
         'function balanceOf(address) external view returns (uint256)',
         'function approve(address spender, uint256 amount) external returns (bool)',
-        'function deposit() external payable',
-        'function withdraw(uint256 amount) external'
+        'function deposit(uint256 assets, address receiver) external returns (uint256 shares)',
+        'function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets)'
     ];
 
     const ed25519HelperAbi = [
@@ -70,7 +84,7 @@ async function main() {
 
     const hub = new ethers.Contract(HUB_ADDRESS, hubAbi, wallet);
     const wsxmr = new ethers.Contract(WSXMR_ADDRESS, wsxmrAbi, wallet);
-    const weth = new ethers.Contract(WETH_ADDRESS, wethAbi, wallet);
+    const sdai = new ethers.Contract(SDAI_ADDRESS, sdaiAbi, wallet);
     const ed25519Helper = new ethers.Contract(ED25519_HELPER, ed25519HelperAbi, provider);
 
     // Log deployed router info
@@ -92,11 +106,13 @@ async function main() {
         console.log('Vault exists');
     }
 
-    // --- STEP 1: Push fresh prices ---
+    // --- STEP 1: Push fresh prices via Chainlink ---
     console.log('Step 1: Push fresh oracle prices');
-    const priceTx = await hub.updatePrices(390_00000000, 2500_00000000, { gasLimit: 500000 });
+    const xmrBlob = fetchReport(XMR_FEED);
+    const ethBlob = fetchReport(ETH_FEED);
+    const priceTx = await hub.updateOraclePrices([xmrBlob, ethBlob], { gasLimit: 500000 });
     await priceTx.wait();
-    console.log('  Prices updated: XMR=$390, WETH=$2500');
+    console.log('  Prices updated via Chainlink');
     console.log('');
 
     // Check existing vault collateral
@@ -133,7 +149,7 @@ async function main() {
 
         // Refresh prices
         console.log('  Refreshing prices...');
-        const refreshTx = await hub.updatePrices(390_00000000, 2500_00000000, { gasLimit: 500000 });
+        const refreshTx = await hub.updateOraclePrices([fetchReport(XMR_FEED), fetchReport(ETH_FEED)], { gasLimit: 500000 });
         await refreshTx.wait();
         console.log('  Prices refreshed:', refreshTx.hash);
 
@@ -181,7 +197,7 @@ async function main() {
 
     // Ensure prices are fresh before Co-LP
     console.log('  Pushing fresh prices before Co-LP...');
-    const preCoLPTx = await hub.updatePrices(390_00000000, 2500_00000000, { gasLimit: 500000 });
+    const preCoLPTx = await hub.updateOraclePrices([fetchReport(XMR_FEED), fetchReport(ETH_FEED)], { gasLimit: 500000 });
     await preCoLPTx.wait();
     console.log('  Prices pushed:', preCoLPTx.hash);
 

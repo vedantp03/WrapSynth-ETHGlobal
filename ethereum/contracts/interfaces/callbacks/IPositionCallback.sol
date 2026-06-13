@@ -10,23 +10,23 @@ interface IPositionCallback {
     /// @param positionIndex Index of the new position
     /// @param lp LP address
     /// @param user User address
-    /// @param collateralAmount collateral in position
+    /// @param sDAIAmount sDAI in position
     /// @param wsxmrAmount wsXMR in position
     function onPositionCreated(
         uint256 positionIndex,
         address lp,
         address user,
-        uint256 collateralAmount,
+        uint256 sDAIAmount,
         uint256 wsxmrAmount
     ) external;
     
     /// @notice Called when a position is closed
     /// @param positionIndex Index of closed position
-    /// @param collateralReturned collateral returned
+    /// @param sDAIReturned sDAI returned
     /// @param wsxmrReturned wsXMR returned
     function onPositionClosed(
         uint256 positionIndex,
-        uint256 collateralReturned,
+        uint256 sDAIReturned,
         uint256 wsxmrReturned
     ) external;
 }

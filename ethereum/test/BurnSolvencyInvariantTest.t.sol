@@ -12,7 +12,7 @@ import {LiquidationFacet} from "../contracts/facets/LiquidationFacet.sol";
 import {YieldFacet} from "../contracts/facets/YieldFacet.sol";
 import {wsXMR} from "../contracts/wsXMR.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {BaseSepoliaAddresses} from "../contracts/BaseSepoliaAddresses.sol";
+import {GnosisAddresses} from "../contracts/GnosisAddresses.sol";
 import {Ed25519} from "../contracts/Ed25519.sol";
 import {IErrors} from "../contracts/interfaces/IErrors.sol";
 
@@ -46,7 +46,7 @@ contract BurnSolvencyInvariantTest is Test {
     uint256 constant DAI_PRICE_8DEC = 1_00000000;   // $1 in 8 decimals
 
     function setUp() public {
-        string memory rpcUrl = vm.envOr("BASE_SEPOLIA_RPC_URL", string("https://sepolia.base.org"));
+        string memory rpcUrl = vm.envOr("GNOSIS_RPC_URL", string("https://rpc.gnosischain.com"));
         vm.createSelectFork(rpcUrl);
 
         vm.deal(address(this), 1_000_000 ether);
@@ -56,15 +56,14 @@ contract BurnSolvencyInvariantTest is Test {
 
         verifier = new MockVerifierProxy();
         wsxmr = new wsXMR();
-        address collateral = BaseSepoliaAddresses.WETH;
-        hub = new wsXmrHub(address(wsxmr), address(verifier), collateral);
+        hub = new wsXmrHub(address(wsxmr), address(verifier));
 
-        oracleFacet = new SimpleOracleFacet(address(wsxmr), address(verifier), collateral, address(this));
-        vaultFacet = new VaultFacet(address(wsxmr), address(verifier), collateral);
-        mintFacet = new MintFacet(address(wsxmr), address(verifier), collateral);
-        burnFacet = new BurnFacet(address(wsxmr), address(verifier), collateral);
-        liquidationFacet = new LiquidationFacet(address(wsxmr), address(verifier), collateral);
-        yieldFacet = new YieldFacet(address(wsxmr), address(verifier), collateral);
+        oracleFacet = new SimpleOracleFacet(address(wsxmr), address(verifier), address(this));
+        vaultFacet = new VaultFacet(address(wsxmr), address(verifier));
+        mintFacet = new MintFacet(address(wsxmr), address(verifier));
+        burnFacet = new BurnFacet(address(wsxmr), address(verifier));
+        liquidationFacet = new LiquidationFacet(address(wsxmr), address(verifier));
+        yieldFacet = new YieldFacet(address(wsxmr), address(verifier));
 
         hub.registerFacets(
             address(vaultFacet),
@@ -76,6 +75,9 @@ contract BurnSolvencyInvariantTest is Test {
         );
 
         wsxmr.setHub(address(hub));
+
+        // Fund MockSavingsDAI wrapper with WETH so redeem() works
+        deal(GnosisAddresses.XDAI, GnosisAddresses.SDAI, 100000 ether);
     }
 
     // ========== FIX 1: SOLVENCY INVARIANTS ==========
@@ -165,7 +167,7 @@ contract BurnSolvencyInvariantTest is Test {
         uint256 lockedAfter = vaultAfter.lockedCollateral;
 
         wsXmrStorage.BurnRequest memory req = _getBurnRequest(burnId);
-        uint256 userPayout = _getPendingReturns(user, BaseSepoliaAddresses.WETH);
+        uint256 userPayout = _getPendingReturns(user, GnosisAddresses.SDAI);
 
         assertEq(sharesBefore - sharesAfter, userPayout, "collateralShares must drop by userPayout");
         assertEq(lockedBefore - lockedAfter, req.lockedCollateral + req.rewardCollateral, "lockedCollateral must drop by total reservation");
@@ -200,7 +202,7 @@ contract BurnSolvencyInvariantTest is Test {
         uint256 lockedAfter = vaultAfter.lockedCollateral;
 
         wsXmrStorage.BurnRequest memory req = _getBurnRequest(burnId);
-        uint256 userBase = _getPendingReturns(user, BaseSepoliaAddresses.WETH);
+        uint256 userBase = _getPendingReturns(user, GnosisAddresses.SDAI);
 
         assertEq(sharesBefore - sharesAfter, userBase, "collateralShares must drop by userBase");
         assertEq(lockedBefore - lockedAfter, req.lockedCollateral + req.rewardCollateral, "lockedCollateral must drop by total reservation");
@@ -320,7 +322,7 @@ contract BurnSolvencyInvariantTest is Test {
         vm.prank(user);
         BurnFacet(address(hub)).claimSlashedCollateral(burnId);
 
-        uint256 userPayout = _getPendingReturns(user, BaseSepoliaAddresses.WETH);
+        uint256 userPayout = _getPendingReturns(user, GnosisAddresses.SDAI);
         assertGt(userPayout, 0, "User should have received payout");
 
         wsXmrStorage.Vault memory vaultAfterSlash = _getVault(lp);
@@ -406,7 +408,7 @@ contract BurnSolvencyInvariantTest is Test {
         wsXmrStorage.BurnRequest memory req = _getBurnRequest(burnId);
         assertEq(uint256(req.status), uint256(wsXmrStorage.BurnStatus.SLASHED), "Burn should be settled as SLASHED");
 
-        uint256 userPayout = _getPendingReturns(user, BaseSepoliaAddresses.WETH);
+        uint256 userPayout = _getPendingReturns(user, GnosisAddresses.SDAI);
         assertGt(userPayout, 0, "User should have received payout from settled burn");
 
         // collateralShares should have decreased by at least userPayout (plus any seizure)
@@ -448,7 +450,7 @@ contract BurnSolvencyInvariantTest is Test {
         wsXmrStorage.BurnRequest memory req = _getBurnRequest(burnId);
         assertEq(uint256(req.status), uint256(wsXmrStorage.BurnStatus.SLASHED), "Should be SLASHED after force settle");
 
-        uint256 userBase = _getPendingReturns(user, BaseSepoliaAddresses.WETH);
+        uint256 userBase = _getPendingReturns(user, GnosisAddresses.SDAI);
         assertGt(userBase, 0, "User should receive par value");
     }
 
@@ -470,7 +472,7 @@ contract BurnSolvencyInvariantTest is Test {
 
         uint256 parUsd = (wsxmrAmount * xmrPrice) / 1e8;
         uint256 parDai = (parUsd * 1e18) / collateralPrice;
-        uint256 parShares = _assetsToShares(parDai);
+        uint256 parShares = _daiToShares(parDai);
 
         // baseLock should be ~110% of par shares
         assertApproxEqRel(baseLock, (parShares * 110) / 100, 0.01e18, "baseLock should be ~110% of par");
@@ -514,7 +516,7 @@ contract BurnSolvencyInvariantTest is Test {
         vm.prank(user);
         BurnFacet(address(hub)).claimSlashedCollateral(burnId);
 
-        uint256 userPayout = _getPendingReturns(user, BaseSepoliaAddresses.WETH);
+        uint256 userPayout = _getPendingReturns(user, GnosisAddresses.SDAI);
 
         // The userBase portion of payout should not exceed the locked base (it was computed from same par)
         assertLe(userPayout, req.lockedCollateral + req.rewardCollateral, "Payout must not exceed total lock");
@@ -542,14 +544,14 @@ contract BurnSolvencyInvariantTest is Test {
             totalVaultShares += v.collateralShares;
         }
 
-        uint256 pendingSDAI = hub.globalPendingCollateral();
+        uint256 pendingSDAI = hub.globalPendingSDAI();
         uint256 warChest = hub.yieldWarChest();
-        uint256 hubBalance = IERC20(BaseSepoliaAddresses.WETH).balanceOf(address(hub));
+        uint256 hubBalance = IERC20(GnosisAddresses.SDAI).balanceOf(address(hub));
 
         assertEq(
             totalVaultShares + pendingSDAI + warChest,
             hubBalance,
-            "Solvency invariant: vault shares + pending + war chest == hub collateral balance"
+            "Solvency invariant: vault shares + pending + war chest == hub sDAI balance"
         );
     }
 
@@ -563,9 +565,9 @@ contract BurnSolvencyInvariantTest is Test {
         vm.startPrank(who);
         VaultFacet(address(hub)).createVault();
         vm.stopPrank();
-        deal(BaseSepoliaAddresses.WETH, who, amount);
+        deal(GnosisAddresses.SDAI, who, amount);
         vm.startPrank(who);
-        IERC20(BaseSepoliaAddresses.WETH).approve(address(hub), amount);
+        IERC20(GnosisAddresses.SDAI).approve(address(hub), amount);
         VaultFacet(address(hub)).depositShares(amount);
         vm.stopPrank();
     }
@@ -638,8 +640,11 @@ contract BurnSolvencyInvariantTest is Test {
         (baseLock, rewardLock) = abi.decode(result, (uint256, uint256));
     }
 
-    function _assetsToShares(uint256 assets) internal view returns (uint256) {
-        // WETH is plain ERC20, 1:1 mapping
-        return assets;
+    function _daiToShares(uint256 daiAmount) internal view returns (uint256) {
+        (bool success, bytes memory data) = GnosisAddresses.SDAI.staticcall(
+            abi.encodeWithSignature("convertToShares(uint256)", daiAmount)
+        );
+        require(success && data.length >= 32, "convertToShares failed");
+        return abi.decode(data, (uint256));
     }
 }

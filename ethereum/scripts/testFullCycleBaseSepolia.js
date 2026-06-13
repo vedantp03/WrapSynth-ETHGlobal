@@ -246,6 +246,13 @@ async function main() {
         return;
     }
 
+    // Refresh oracle prices before burn (prevent StalePrice)
+    console.log('Refreshing oracle prices before burn...');
+    const xmrBlob3 = fetchReport(XMR_FEED);
+    const ethBlob3 = fetchReport(ETH_FEED);
+    const refreshTx = await hub.updateOraclePrices([xmrBlob3, ethBlob3]);
+    await refreshTx.wait();
+    console.log('Prices refreshed for burn flow');
     console.log('Step 7: BURN - Request');
     console.log('=======================');
     const burnAmount = wsxmrBalance;

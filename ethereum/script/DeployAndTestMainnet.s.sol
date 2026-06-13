@@ -78,8 +78,7 @@ contract DeployAndTestMainnet is Script {
         console.log("============================================================");
         console.log("STEP 2: Deploying wsXmrHub");
         console.log("============================================================");
-        address collateral = address(0); // mock collateral
-        hub = new wsXmrHub(address(wsxmr), VERIFIER, collateral);
+        hub = new wsXmrHub(address(wsxmr), VERIFIER);
         console.log("wsXmrHub deployed to:", address(hub));
         console.log("");
 
@@ -87,22 +86,22 @@ contract DeployAndTestMainnet is Script {
         console.log("STEP 3: Deploying Facets");
         console.log("============================================================");
         
-        oracleFacet = new RedStoneOracleFacet(address(wsxmr), VERIFIER, collateral);
+        oracleFacet = new RedStoneOracleFacet(address(wsxmr), VERIFIER);
         console.log("RedStoneOracleFacet deployed to:", address(oracleFacet));
         
-        vaultFacet = new VaultFacet(address(wsxmr), VERIFIER, collateral);
+        vaultFacet = new VaultFacet(address(wsxmr), VERIFIER);
         console.log("VaultFacet deployed to:", address(vaultFacet));
         
-        mintFacet = new MintFacet(address(wsxmr), VERIFIER, collateral);
+        mintFacet = new MintFacet(address(wsxmr), VERIFIER);
         console.log("MintFacet deployed to:", address(mintFacet));
         
-        burnFacet = new BurnFacet(address(wsxmr), VERIFIER, collateral);
+        burnFacet = new BurnFacet(address(wsxmr), VERIFIER);
         console.log("BurnFacet deployed to:", address(burnFacet));
         
-        liquidationFacet = new LiquidationFacet(address(wsxmr), VERIFIER, collateral);
+        liquidationFacet = new LiquidationFacet(address(wsxmr), VERIFIER);
         console.log("LiquidationFacet deployed to:", address(liquidationFacet));
         
-        yieldFacet = new YieldFacet(address(wsxmr), VERIFIER, collateral);
+        yieldFacet = new YieldFacet(address(wsxmr), VERIFIER);
         console.log("YieldFacet deployed to:", address(yieldFacet));
         console.log("");
 

@@ -25,8 +25,5 @@
       "name": "v1.0.0",
       "rev": "e3589b192d0be27e100cd0daaf6c97204fdb1899"
     }
-  },
-  "lib/v3-periphery": {
-    "rev": "0682387198a24c7cd63566a2c58398533860a5d1"
   }
 }
