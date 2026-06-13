@@ -28,7 +28,7 @@ interface ILiquidityPosition {
     /// @return liquidity Amount of liquidity minted
     /// @return tickLower Lower tick (snapped to tick spacing)
     /// @return tickUpper Upper tick (snapped to tick spacing)
-    /// @return daiConsumed Actual sDAI amount consumed by the mint
+    /// @return daiConsumed Actual collateral amount consumed by the mint
     /// @return wsxmrConsumed Actual wsXMR amount consumed by the mint
     function mintConcentratedPosition(
         uint256 daiAmount,

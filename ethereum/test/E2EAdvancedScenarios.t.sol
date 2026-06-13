@@ -13,6 +13,7 @@ import {YieldFacet} from "../contracts/facets/YieldFacet.sol";
 import {wsXMR} from "../contracts/wsXMR.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ed25519} from "../contracts/Ed25519.sol";
+import {BaseSepoliaAddresses} from "../contracts/BaseSepoliaAddresses.sol";
 
 /**
  * @title E2E Advanced Scenarios Test
@@ -20,8 +21,7 @@ import {Ed25519} from "../contracts/Ed25519.sol";
  * @dev Demonstrates the power of controlling the oracle and time in tests
  */
 contract E2EAdvancedScenariosTest is Test {
-    address constant WXDAI = 0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d;
-    address constant SDAI = 0xaf204776c7245bF4147c2612BF6e5972Ee483701;
+    address constant WETH = BaseSepoliaAddresses.WETH;
     
     wsXmrHub public hub;
     wsXMR public wsxmr;
@@ -44,7 +44,7 @@ contract E2EAdvancedScenariosTest is Test {
     uint256 constant INITIAL_DAI_PRICE = 1_00000000;   // $1
     
     function setUp() public {
-        string memory rpcUrl = vm.envOr("GNOSIS_RPC_URL", string("https://rpc.gnosischain.com"));
+        string memory rpcUrl = vm.envOr("GNOSIS_RPC_URL", string("https://sepolia.base.org"));
         vm.createSelectFork(rpcUrl);
         
         deployer = address(this);
@@ -66,14 +66,14 @@ contract E2EAdvancedScenariosTest is Test {
     function _deployContracts() internal {
         verifier = new MockVerifierProxy();
         wsxmr = new wsXMR();
-        hub = new wsXmrHub(address(wsxmr), address(verifier));
+        hub = new wsXmrHub(address(wsxmr), address(verifier), BaseSepoliaAddresses.WETH);
         
-        oracleFacet = new SimpleOracleFacet(address(wsxmr), address(verifier), deployer);
-        vaultFacet = new VaultFacet(address(wsxmr), address(verifier));
-        mintFacet = new MintFacet(address(wsxmr), address(verifier));
-        burnFacet = new BurnFacet(address(wsxmr), address(verifier));
-        liquidationFacet = new LiquidationFacet(address(wsxmr), address(verifier));
-        yieldFacet = new YieldFacet(address(wsxmr), address(verifier));
+        oracleFacet = new SimpleOracleFacet(address(wsxmr), address(verifier), BaseSepoliaAddresses.WETH, deployer);
+        vaultFacet = new VaultFacet(address(wsxmr), address(verifier), BaseSepoliaAddresses.WETH);
+        mintFacet = new MintFacet(address(wsxmr), address(verifier), BaseSepoliaAddresses.WETH);
+        burnFacet = new BurnFacet(address(wsxmr), address(verifier), BaseSepoliaAddresses.WETH);
+        liquidationFacet = new LiquidationFacet(address(wsxmr), address(verifier), BaseSepoliaAddresses.WETH);
+        yieldFacet = new YieldFacet(address(wsxmr), address(verifier), BaseSepoliaAddresses.WETH);
         
         hub.registerFacets(
             address(vaultFacet),
@@ -92,8 +92,7 @@ contract E2EAdvancedScenariosTest is Test {
     
     function _setupVault(address lp, uint256 collateralAmount) internal {
         vm.startPrank(lp);
-        (bool success,) = WXDAI.call{value: collateralAmount}("");
-        require(success);
+        deal(WETH, lp, collateralAmount);
         
         VaultFacet(address(hub)).createVault();
         VaultFacet(address(hub)).setMaxMintBps(0);
@@ -101,7 +100,7 @@ contract E2EAdvancedScenariosTest is Test {
         VaultFacet(address(hub)).setMintGriefingDeposit(0.001 ether);
         VaultFacet(address(hub)).setMintReadyBond(0.001 ether);
         
-        IERC20(WXDAI).approve(address(hub), collateralAmount);
+        IERC20(WETH).approve(address(hub), collateralAmount);
         VaultFacet(address(hub)).depositCollateral(collateralAmount);
         vm.stopPrank();
     }
@@ -166,11 +165,11 @@ contract E2EAdvancedScenariosTest is Test {
         _performMint(lp1, liquidator, 20000000); // 0.2 XMR to liquidate
         
         vm.startPrank(liquidator);
-        uint256 collateralBefore = IERC20(SDAI).balanceOf(liquidator);
+        uint256 collateralBefore = IERC20(WETH).balanceOf(liquidator);
         
         // Try to liquidate - use a reasonable amount (5M wsXMR)
         try LiquidationFacet(address(hub)).liquidate(lp1, 5000000) {
-            uint256 collateralAfter = IERC20(SDAI).balanceOf(liquidator);
+            uint256 collateralAfter = IERC20(WETH).balanceOf(liquidator);
             console.log("[6] Liquidator received collateral:", collateralAfter - collateralBefore);
             console.log("[7] Liquidation bonus earned: 10%");
         } catch {
@@ -247,10 +246,10 @@ contract E2EAdvancedScenariosTest is Test {
         vm.roll(block.number + 2160);
         
         // User can now claim slashed collateral
-        uint256 collateralBefore = IERC20(SDAI).balanceOf(user1);
+        uint256 collateralBefore = IERC20(WETH).balanceOf(user1);
         vm.prank(user1);
         BurnFacet(address(hub)).claimSlashedCollateral(burnRequestId);
-        uint256 collateralAfter = IERC20(SDAI).balanceOf(user1);
+        uint256 collateralAfter = IERC20(WETH).balanceOf(user1);
         
         console.log("[6] User1 claimed slashed collateral:", collateralAfter - collateralBefore);
         console.log("[7] LP1 was slashed for not revealing secret!");

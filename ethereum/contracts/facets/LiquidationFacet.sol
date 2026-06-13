@@ -8,12 +8,9 @@ import {ILiquidationFacet} from "../interfaces/facets/ILiquidationFacet.sol";
 import {IOracleFacet} from "../interfaces/facets/IOracleFacet.sol";
 import {IwsXmrHub} from "../interfaces/core/IwsXmrHub.sol";
 import {CollateralLogic} from "../libraries/CollateralLogic.sol";
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {GnosisAddresses} from "../GnosisAddresses.sol";
 import {YieldLogic} from "../libraries/YieldLogic.sol";
-import {GnosisAddresses} from "../GnosisAddresses.sol";
+import {CollateralHelpers} from "../libraries/CollateralHelpers.sol";
 import {IwsXmrLiquidityRouter} from "../interfaces/router/IwsXmrLiquidityRouter.sol";
-import {ISavingsDAI} from "../interfaces/external/ISavingsDAI.sol";
 import {IBurnOperations} from "../interfaces/swap/IBurnOperations.sol";
 
 contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
@@ -33,12 +30,12 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
     event BurnCancelled(bytes32 indexed requestId);
     event BurnSlashed(bytes32 indexed requestId, address indexed user, uint256 collateralSeized);
     
-    constructor(address _wsxmrToken, address _verifierProxy) 
-        wsXmrStorage(_wsxmrToken, _verifierProxy) 
+    constructor(address _wsxmrToken, address _verifierProxy, address _collateralToken) 
+        wsXmrStorage(_wsxmrToken, _verifierProxy, _collateralToken) 
     {}
     
     /// @dev Par-capped slash settlement for a COMMITTED burn.
-    /// User receives min(par, locked) + reward in sDAI; excess locked collateral returns to vault.
+    /// User receives min(par, locked) + reward in collateral; excess locked collateral returns to vault.
     /// @notice Known residual: if XMR appreciates >30% within commit window, user is capped at
     ///         lockedCollateral (under par). This is inherent to fixed-ratio locking and accepted.
     function _settleCommittedBurnSlash(
@@ -47,8 +44,8 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
         uint256 collateralPrice
     ) internal {
         uint256 parValueUsd = (burnReq.wsxmrAmount * burnReq.xmrPriceAtRequest) / WSXMR_DECIMALS;
-        uint256 parDaiAmount = (parValueUsd * SDAI_DECIMALS) / collateralPrice;
-        uint256 parShares = _daiToShares(parDaiAmount);
+        uint256 parAssetAmount = (parValueUsd * COLLATERAL_DECIMALS) / collateralPrice;
+        uint256 parShares = CollateralHelpers.toShares(collateralToken, parAssetAmount);
 
         uint256 userBase = parShares < burnReq.lockedCollateral
             ? parShares
@@ -59,9 +56,9 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
         v.collateralShares -= userPayout;
         globalPendingBurnDebt -= burnReq.wsxmrAmount;
 
-        pendingReturns[burnReq.user][GnosisAddresses.SDAI] += userPayout;
-        globalPendingSDAI += userPayout;
-        emit ReturnQueued(burnReq.user, GnosisAddresses.SDAI, userPayout);
+        pendingReturns[burnReq.user][collateralToken] += userPayout;
+        globalPendingCollateral += userPayout;
+        emit ReturnQueued(burnReq.user, collateralToken, userPayout);
 
         burnReq.status = BurnStatus.SLASHED;
         emit BurnSlashed(burnReq.requestId, burnReq.user, userPayout);
@@ -92,7 +89,8 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
                 actualDebt,
                 vault.pendingDebt,
                 xmrPrice,
-                collateralPrice
+                collateralPrice,
+                collateralToken
             );
             
             if (yieldShares > 0) {
@@ -150,8 +148,8 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
         
         uint256 debtValueUsd = (debtToClear * xmrPrice) / WSXMR_DECIMALS; // wsXMR has 8 decimals
         uint256 collateralValueUsd = (debtValueUsd * LIQUIDATION_BONUS) / RATIO_PRECISION;
-        uint256 collateralToSeizeDai = (collateralValueUsd * SDAI_DECIMALS) / collateralPrice;
-        uint256 collateralToSeize = _daiToShares(collateralToSeizeDai);
+        uint256 collateralToSeizeAssets = (collateralValueUsd * COLLATERAL_DECIMALS) / collateralPrice;
+        uint256 collateralToSeize = CollateralHelpers.toShares(collateralToken, collateralToSeizeAssets);
         
         // L1: Never seize locked collateral. After burn settlements and position unwinds,
         // lockedCollateral should still be reserved for any remaining committed burns.
@@ -161,8 +159,8 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
         
         if (collateralToSeize > availableCollateral) {
             collateralToSeize = availableCollateral;
-            uint256 actualDaiAmount = _sharesToDai(collateralToSeize);
-            uint256 actualCollateralValueUsd = (actualDaiAmount * collateralPrice) / SDAI_DECIMALS;
+            uint256 actualAssetAmount = CollateralHelpers.toAssets(collateralToken, collateralToSeize);
+            uint256 actualCollateralValueUsd = (actualAssetAmount * collateralPrice) / COLLATERAL_DECIMALS;
             debtToClear = (actualCollateralValueUsd * RATIO_PRECISION * WSXMR_DECIMALS) / (LIQUIDATION_BONUS * xmrPrice);
             
             if (debtToClear > actualDebt) {
@@ -200,7 +198,7 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
         vault.mintNonce++;
         
         IwsXmrHub(address(this)).burnTokens(msg.sender, debtToClear);
-        IERC20(GnosisAddresses.SDAI).safeTransfer(msg.sender, collateralToSeize);
+        IERC20(collateralToken).safeTransfer(msg.sender, collateralToSeize);
         
         emit VaultLiquidated(lpVault, msg.sender, debtToClear, collateralToSeize);
         
@@ -235,7 +233,8 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
                 oldDebt,
                 oldV.pendingDebt,
                 xmrPrice,
-                collateralPrice
+                collateralPrice,
+                collateralToken
             );
             if (yieldShares > 0) {
                 oldV.collateralShares -= yieldShares;
@@ -255,7 +254,8 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
                 newDebtBefore,
                 newV.pendingDebt,
                 xmrPrice,
-                collateralPrice
+                collateralPrice,
+                collateralToken
             );
             if (yieldShares > 0) {
                 newV.collateralShares -= yieldShares;
@@ -351,13 +351,13 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
         
         uint256 debtValueUsd = (debtToClear * xmrPrice) / WSXMR_DECIMALS; // wsXMR has 8 decimals
         uint256 collateralValueUsd = (debtValueUsd * LIQUIDATION_BONUS) / RATIO_PRECISION;
-        uint256 collateralToSeizeDai = (collateralValueUsd * SDAI_DECIMALS) / collateralPrice;
-        collateralSeized = _daiToShares(collateralToSeizeDai);
+        uint256 collateralToSeizeAssets = (collateralValueUsd * COLLATERAL_DECIMALS) / collateralPrice;
+        collateralSeized = CollateralHelpers.toShares(collateralToken, collateralToSeizeAssets);
         
         if (collateralSeized > vault.collateralShares) {
             collateralSeized = vault.collateralShares;
-            uint256 actualDaiAmount = _sharesToDai(collateralSeized);
-            uint256 actualCollateralValueUsd = (actualDaiAmount * collateralPrice) / SDAI_DECIMALS;
+            uint256 actualAssetAmount = CollateralHelpers.toAssets(collateralToken, collateralSeized);
+            uint256 actualCollateralValueUsd = (actualAssetAmount * collateralPrice) / COLLATERAL_DECIMALS;
             actualDebtCleared = (actualCollateralValueUsd * RATIO_PRECISION * WSXMR_DECIMALS) / (LIQUIDATION_BONUS * xmrPrice);
             
             if (actualDebtCleared > actualDebt) {
@@ -402,9 +402,9 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
         uint256 xmrPrice = _getXmrPriceFromStorage();
         uint256 collateralPrice = _getCollateralPriceFromStorage();
         
-        if (vault.deployedSDAIShares == 0) {
+        if (vault.deployedCollateralShares == 0) {
             return CollateralLogic.calculateRatioFromShares(
-                vault.collateralShares, debtAmount, GnosisAddresses.SDAI, collateralPrice, xmrPrice
+                vault.collateralShares, debtAmount, collateralToken, collateralPrice, xmrPrice
             );
         }
         
@@ -414,7 +414,7 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
             positionDAI,
             positionWsxmr,
             debtAmount,
-            GnosisAddresses.SDAI,
+            collateralToken,
             collateralPrice,
             xmrPrice
         );
@@ -451,10 +451,10 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
                 pendingReturns[meta.user][wsxmrToken] += wsxmrOut;
             }
             
-            if (vault.deployedSDAIShares >= meta.sDAISharesOriginal) {
-                vault.deployedSDAIShares -= meta.sDAISharesOriginal;
+            if (vault.deployedCollateralShares >= meta.collateralSharesOriginal) {
+                vault.deployedCollateralShares -= meta.collateralSharesOriginal;
             } else {
-                vault.deployedSDAIShares = 0;
+                vault.deployedCollateralShares = 0;
             }
             
             _vaultPositions[lpVault].pop();
@@ -474,20 +474,12 @@ contract LiquidationFacet is wsXmrStorage, ILiquidationFacet {
         }
     }
     
-    function _daiToShares(uint256 daiAmount) internal view returns (uint256) {
-        (bool success, bytes memory data) = GnosisAddresses.SDAI.staticcall(
-            abi.encodeWithSignature("convertToShares(uint256)", daiAmount)
-        );
-        require(success && data.length >= 32, "convertToShares failed");
-        return abi.decode(data, (uint256));
+    function _assetsToShares(uint256 assets) internal view returns (uint256) {
+        return CollateralHelpers.toShares(collateralToken, assets);
     }
     
-    function _sharesToDai(uint256 shares) internal view returns (uint256) {
-        (bool success, bytes memory data) = GnosisAddresses.SDAI.staticcall(
-            abi.encodeWithSignature("convertToAssets(uint256)", shares)
-        );
-        require(success && data.length >= 32, "convertToAssets failed");
-        return abi.decode(data, (uint256));
+    function _sharesToAssets(uint256 shares) internal view returns (uint256) {
+        return CollateralHelpers.toAssets(collateralToken, shares);
     }
     
     // ========== DIAMOND INTROSPECTION ==========
