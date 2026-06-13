@@ -87,27 +87,30 @@ contract DeployBaseSepolia is Script {
         wsXMR wsxmr = new wsXMR();
         console.log("wsXMR:            ", address(wsxmr));
 
-        wsXmrHub hub = new wsXmrHub(address(wsxmr), VERIFIER_PROXY);
+        // Collateral on Base Sepolia is wxDAI (plain ERC20, tracked 1:1 as shares).
+        address collateral = GnosisAddresses.XDAI;
+
+        wsXmrHub hub = new wsXmrHub(address(wsxmr), VERIFIER_PROXY, collateral);
         console.log("wsXmrHub:         ", address(hub));
 
         ChainlinkDataStreamsOracleFacet oracleFacet = new ChainlinkDataStreamsOracleFacet(
-            address(wsxmr), VERIFIER_PROXY, XMR_USD_FEED_ID, ETH_USD_FEED_ID
+            address(wsxmr), VERIFIER_PROXY, collateral, XMR_USD_FEED_ID, ETH_USD_FEED_ID
         );
         console.log("OracleFacet:      ", address(oracleFacet));
 
-        VaultFacet vaultFacet = new VaultFacet(address(wsxmr), VERIFIER_PROXY);
+        VaultFacet vaultFacet = new VaultFacet(address(wsxmr), VERIFIER_PROXY, collateral);
         console.log("VaultFacet:       ", address(vaultFacet));
 
-        MintFacet mintFacet = new MintFacet(address(wsxmr), VERIFIER_PROXY);
+        MintFacet mintFacet = new MintFacet(address(wsxmr), VERIFIER_PROXY, collateral);
         console.log("MintFacet:        ", address(mintFacet));
 
-        BurnFacet burnFacet = new BurnFacet(address(wsxmr), VERIFIER_PROXY);
+        BurnFacet burnFacet = new BurnFacet(address(wsxmr), VERIFIER_PROXY, collateral);
         console.log("BurnFacet:        ", address(burnFacet));
 
-        LiquidationFacet liquidationFacet = new LiquidationFacet(address(wsxmr), VERIFIER_PROXY);
+        LiquidationFacet liquidationFacet = new LiquidationFacet(address(wsxmr), VERIFIER_PROXY, collateral);
         console.log("LiquidationFacet: ", address(liquidationFacet));
 
-        YieldFacet yieldFacet = new YieldFacet(address(wsxmr), VERIFIER_PROXY);
+        YieldFacet yieldFacet = new YieldFacet(address(wsxmr), VERIFIER_PROXY, collateral);
         console.log("YieldFacet:       ", address(yieldFacet));
 
         hub.registerFacets(

@@ -63,6 +63,49 @@ WrapSynth brings Monero's anonymity set to DeFi and DeFi liquidity to Monero. Us
 Full deployment manifest: [`deployment.json`](./deployment.json)
 </details>
 
+---
+
+## 🤖 Chainlink CRE — Autonomous Liquidation Keeper
+
+A [Chainlink Runtime Environment](https://docs.chain.link/cre) workflow that keeps
+LP vaults **overcollateralized without a custodial keeper**. LPs open at ~150% CR;
+if XMR rallies and a vault drops below the **120%** liquidation threshold, the
+workflow detects it with **DON consensus** and flags it on-chain. Anyone can then
+`liquidate()` (burn wsXMR for the 10% bonus) or `backstopVault()` (a new LP takes
+the position over) to restore the peg.
+
+```
+cron ─► CRE: read getLiquidatableVaults(hub)  ─►  DON-signed report (address[])
+                                                       │ writeReport
+                                                       ▼
+                           LiquidationAlertRegistry.onReport()
+                           └─ re-validates isVaultLiquidatable() on-chain
+                              emits VaultFlaggedForLiquidation(vault, debt, …)
+```
+
+The registry **re-checks every vault against the live hub before emitting**, so a
+flag can never be forged for a healthy vault — trust comes from on-chain
+re-validation, not the report's author.
+
+- Workflow + docs: [`cre/`](./cre) (`cre/liquidation-keeper/main.ts`)
+- On-chain sink: [`ethereum/contracts/keeper/LiquidationAlertRegistry.sol`](./ethereum/contracts/keeper/LiquidationAlertRegistry.sol)
+- Deploy: `ethereum/script/DeployLiquidationRegistry.s.sol`
+- Controllable-price demo: `ethereum/script/DeployDemoHub.s.sol` + `ethereum/scripts/demo/*.js`
+
+```bash
+# 1. deploy the registry
+cd ethereum && forge script script/DeployLiquidationRegistry.s.sol \
+  --rpc-url https://sepolia.base.org --broadcast
+
+# 2. run the keeper (set hubAddress + registryAddress in cre/liquidation-keeper/config.staging.json)
+cd ../cre && cre workflow simulate liquidation-keeper --env .env --broadcast
+```
+
+See [`cre/README.md`](./cre/README.md) for the full end-to-end demo (force a vault
+underwater → CRE flags it → liquidate / backstop).
+
+---
+
 ### Original Deployed Contracts (Gnosis Chain, ChainID 100)
 
 | Contract | Address |
