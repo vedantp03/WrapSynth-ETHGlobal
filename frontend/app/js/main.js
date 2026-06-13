@@ -2101,8 +2101,37 @@ async function handleStartMint() {
         // Use the default LP vault from config
         const { CONTRACTS } = await import('./config.js');
         
+        let lpVault = CONTRACTS.defaultLpVault;
+        
+        // If no default LP vault is configured, try to discover one on-chain
+        if (!lpVault) {
+            console.log('No defaultLpVault configured; discovering active vaults on-chain...');
+            try {
+                const vaultCount = await readHub('getVaultCount');
+                for (let i = 0n; i < vaultCount; i++) {
+                    const addr = await readHub('getVaultAtIndex', [i]);
+                    if (!addr) continue;
+                    const vault = await readHub('getVault', [addr]);
+                    if (vault.active) {
+                        lpVault = addr;
+                        console.log('Auto-discovered active LP vault:', lpVault);
+                        break;
+                    }
+                }
+            } catch (e) {
+                console.warn('Vault discovery failed:', e.message);
+            }
+        }
+        
+        if (!lpVault) {
+            throw new Error(
+                'No active LP vault found. Please ask the operator to set defaultLpVault in deployment.json, ' +
+                'or ensure an LP vault is created and active on-chain.'
+            );
+        }
+        
         // Start the flow with the LP vault that has the running LP node
-        await currentMintFlow.start(CONTRACTS.defaultLpVault, amount);
+        await currentMintFlow.start(lpVault, amount);
         
         // Show previous mint banner if user had another mint going
         if (previousMintRequestId) {

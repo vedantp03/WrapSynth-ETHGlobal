@@ -185,22 +185,38 @@ export class MintFlow {
 
     async checkOracleFreshness() {
         console.log('Checking oracle freshness...');
-        
+
+        let xmrFresh = false;
+        let collateralFresh = false;
+
         try {
-            // Try to get price with 2 minute staleness tolerance
             await readHub('getXmrPrice', []);
-            console.log('Oracle prices are fresh');
+            xmrFresh = true;
         } catch (error) {
-            // Prices are stale - try to update them
-            console.warn('Oracle prices are stale, attempting update...');
-            try {
-                updateMintProgress('evm-init', 'Updating XMR price onchain...');
-                await this.updatePrices();
-            } catch (updateError) {
-                console.warn('Could not update prices from UI:', updateError.message);
-                console.log('Continuing anyway - LP node should handle price updates');
-                // Don't throw - the LP node will update prices
-            }
+            console.warn('XMR price is stale');
+        }
+
+        try {
+            await readHub('getCollateralPrice', []);
+            collateralFresh = true;
+        } catch (error) {
+            console.warn('Collateral price is stale');
+        }
+
+        if (xmrFresh && collateralFresh) {
+            console.log('Oracle prices are fresh');
+            return;
+        }
+
+        // Prices are stale - try to update them
+        console.warn('Oracle prices are stale, attempting update...');
+        try {
+            updateMintProgress('evm-init', 'Updating oracle prices onchain...');
+            await this.updatePrices();
+        } catch (updateError) {
+            console.warn('Could not update prices from UI:', updateError.message);
+            console.log('Continuing anyway - LP node should handle price updates');
+            // Don't throw - the LP node will update prices
         }
     }
 
@@ -230,9 +246,8 @@ export class MintFlow {
             griefingDeposit: this.griefingDeposit.toString()
         });
 
-        let receipt;
-        try {
-            receipt = await writeHub(
+        const attemptInitiateMint = async () => {
+            return await writeHub(
                 'initiateMint',
                 [
                     this.lpVault,
@@ -243,12 +258,50 @@ export class MintFlow {
                 ],
                 this.griefingDeposit
             );
+        };
+
+        let receipt;
+        try {
+            receipt = await attemptInitiateMint();
         } catch (error) {
-            // Check if it's a StalePrice error (0x19abf40e)
-            if (error.message && error.message.includes('0x19abf40e')) {
-                throw new Error('Oracle prices are stale. Please wait a moment for the LP node to update prices, then try again.');
+            const isStalePrice = error.message && (
+                error.message.includes('0x19abf40e') ||
+                error.message.includes('StalePrice')
+            );
+
+            if (isStalePrice) {
+                console.warn('Oracle prices stale on initiateMint, pushing fresh prices...');
+                updateMintProgress('evm-init', 'Pushing fresh oracle prices...');
+
+                try {
+                    await this.updatePrices();
+                    console.log('Fresh prices pushed, retrying initiateMint...');
+                } catch (updateErr) {
+                    console.warn('Price update failed:', updateErr.message);
+                    // Fall back to polling if proactive update fails
+                    let fresh = false;
+                    for (let i = 0; i < 20; i++) {
+                        await new Promise(r => setTimeout(r, 3000));
+                        try {
+                            await readHub('getXmrPrice', []);
+                            await readHub('getCollateralPrice', []);
+                            fresh = true;
+                            break;
+                        } catch (pollError) {
+                            if (!pollError.message.includes('0x19abf40e') && !pollError.message.includes('StalePrice')) {
+                                throw pollError;
+                            }
+                        }
+                    }
+                    if (!fresh) {
+                        throw new Error('Oracle prices are still stale after 60 seconds. Please wait for the LP node to update prices, then try again.');
+                    }
+                }
+
+                receipt = await attemptInitiateMint();
+            } else {
+                throw error;
             }
-            throw error;
         }
 
         console.log('Mint initiated, tx:', receipt.transactionHash);
