@@ -10,7 +10,6 @@ import "../contracts/facets/BurnFacet.sol";
 import "../contracts/facets/LiquidationFacet.sol";
 import "../contracts/facets/YieldFacet.sol";
 import "../contracts/wsXMR.sol";
-import "../contracts/GnosisAddresses.sol";
 
 contract DeployGnosisRedStone is Script {
     // No verifier needed for SimpleOracleFacet (uses off-chain RedStone prices)
@@ -40,7 +39,7 @@ contract DeployGnosisRedStone is Script {
         console.log("============================================================");
         console.log("STEP 2: Deploying wsXmrHub");
         console.log("============================================================");
-        wsXmrHub hub = new wsXmrHub(address(wsxmr), VERIFIER, GnosisAddresses.SDAI);
+        wsXmrHub hub = new wsXmrHub(address(wsxmr), VERIFIER);
         console.log("wsXmrHub deployed to:", address(hub));
         console.log("");
 
@@ -49,22 +48,22 @@ contract DeployGnosisRedStone is Script {
         console.log("============================================================");
         
         // SimpleOracleFacet needs deployer as price updater
-        SimpleOracleFacet oracleFacet = new SimpleOracleFacet(address(wsxmr), VERIFIER, GnosisAddresses.SDAI, deployer);
+        SimpleOracleFacet oracleFacet = new SimpleOracleFacet(address(wsxmr), VERIFIER, deployer);
         console.log("SimpleOracleFacet deployed to:", address(oracleFacet));
         
-        VaultFacet vaultFacet = new VaultFacet(address(wsxmr), VERIFIER, GnosisAddresses.SDAI);
+        VaultFacet vaultFacet = new VaultFacet(address(wsxmr), VERIFIER);
         console.log("VaultFacet deployed to:", address(vaultFacet));
         
-        MintFacet mintFacet = new MintFacet(address(wsxmr), VERIFIER, GnosisAddresses.SDAI);
+        MintFacet mintFacet = new MintFacet(address(wsxmr), VERIFIER);
         console.log("MintFacet deployed to:", address(mintFacet));
         
-        BurnFacet burnFacet = new BurnFacet(address(wsxmr), VERIFIER, GnosisAddresses.SDAI);
+        BurnFacet burnFacet = new BurnFacet(address(wsxmr), VERIFIER);
         console.log("BurnFacet deployed to:", address(burnFacet));
         
-        LiquidationFacet liquidationFacet = new LiquidationFacet(address(wsxmr), VERIFIER, GnosisAddresses.SDAI);
+        LiquidationFacet liquidationFacet = new LiquidationFacet(address(wsxmr), VERIFIER);
         console.log("LiquidationFacet deployed to:", address(liquidationFacet));
         
-        YieldFacet yieldFacet = new YieldFacet(address(wsxmr), VERIFIER, GnosisAddresses.SDAI);
+        YieldFacet yieldFacet = new YieldFacet(address(wsxmr), VERIFIER);
         console.log("YieldFacet deployed to:", address(yieldFacet));
         console.log("");
 

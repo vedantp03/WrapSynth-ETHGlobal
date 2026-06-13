@@ -9,7 +9,7 @@
   "contracts": {
     "wsXMR": "0x500735b66b9968e9fc7d6c6d1ae6ccf19a6a238b",
     "wsXmrHub": "0x65d3b7ff17dfa21fd6bb1553d51336b66548a1c3",
-    "liquidityRouter": null,
+    "liquidityRouter": "0x0F9172c037eC5dFFa940aFa357Ee0A52B5a08d71",
     "swapHelper": null,
     "facets": {
       "ChainlinkDataStreamsOracleFacet": "0xe38af534e73995a0bfac54e40ed82bc2ffddd22d",
@@ -35,7 +35,7 @@
     "dataEngineUrl": "https://api.testnet-dataengine.chain.link"
   },
   "pool": {
-    "uniswapV3Pool": null,
+    "uniswapV3Pool": "0x79cF96e0FA6aBE3cF02994B35c68A69359857Ae9",
     "feeTier": 3000
   },
   "lpConfig": {

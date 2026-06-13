@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "../interfaces/external/ISavingsDAI.sol";
+import "../GnosisAddresses.sol";
+
 /**
  * @title BurnLogic
  * @notice Library for burn request lifecycle logic

@@ -7,14 +7,15 @@ import {IwsXmrHub} from "../interfaces/core/IwsXmrHub.sol";
 import {Ed25519} from "../Ed25519.sol";
 import {CollateralLogic} from "../libraries/CollateralLogic.sol";
 import {YieldLogic} from "../libraries/YieldLogic.sol";
-import {CollateralHelpers} from "../libraries/CollateralHelpers.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {GnosisAddresses} from "../GnosisAddresses.sol";
 
 contract MintFacet is wsXmrStorage, IMintFacet {
     
     error ReentrancyGuard();
     
-    constructor(address _wsxmrToken, address _verifierProxy, address _collateralToken) 
-        wsXmrStorage(_wsxmrToken, _verifierProxy, _collateralToken) 
+    constructor(address _wsxmrToken, address _verifierProxy) 
+        wsXmrStorage(_wsxmrToken, _verifierProxy) 
     {}
     
     function initiateMint(
@@ -52,10 +53,10 @@ contract MintFacet is wsXmrStorage, IMintFacet {
                 ? vault.collateralShares - vault.lockedCollateral
                 : 0;
             
-            // Convert collateral shares to underlying assets
-            uint256 availableForMint = CollateralHelpers.toAssets(collateralToken, availableShares);
+            // Convert sDAI shares to underlying DAI assets
+            uint256 availableForMint = IERC4626(GnosisAddresses.SDAI).convertToAssets(availableShares);
             
-            uint256 collateralValueUsd = (availableForMint * collateralPrice) / COLLATERAL_DECIMALS;
+            uint256 collateralValueUsd = (availableForMint * collateralPrice) / SDAI_DECIMALS;
             uint256 maxTotalDebtCapacity = (collateralValueUsd * RATIO_PRECISION) / COLLATERAL_RATIO;
             uint256 maxMintAllowed = (maxTotalDebtCapacity * vault.maxMintBps) / BPS_DENOMINATOR;
             
@@ -352,8 +353,7 @@ contract MintFacet is wsXmrStorage, IMintFacet {
             vault.pendingDebt,
             globalDebtIndex,
             xmrPrice,
-            collateralPrice,
-            collateralToken
+            collateralPrice
         );
         
         if (yieldShares > 0) {
@@ -369,7 +369,7 @@ contract MintFacet is wsXmrStorage, IMintFacet {
         return CollateralLogic.calculateRatioFromShares(
             collateralShares,
             debtAmount,
-            collateralToken,
+            GnosisAddresses.SDAI,
             collateralPrice,
             xmrPrice
         );

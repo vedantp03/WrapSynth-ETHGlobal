@@ -5,9 +5,11 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {wsXmrStorage} from "../core/wsXmrStorage.sol";
 import {IVaultFacet} from "../interfaces/facets/IVaultFacet.sol";
+import {ISavingsDAI} from "../interfaces/external/ISavingsDAI.sol";
+import {GnosisAddresses} from "../GnosisAddresses.sol";
 import {CollateralLogic} from "../libraries/CollateralLogic.sol";
 import {YieldLogic} from "../libraries/YieldLogic.sol";
-import {CollateralHelpers} from "../libraries/CollateralHelpers.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {IwsXmrLiquidityRouter} from "../interfaces/router/IwsXmrLiquidityRouter.sol";
 
 /**
@@ -34,7 +36,7 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         address indexed vault,
         address indexed user,
         uint256 indexed tokenId,
-        uint256 collateralShares,
+        uint256 sDAIShares,
         uint256 wsxmrAmount,
         uint16 rangeBps
     );
@@ -59,8 +61,8 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
     
     // ========== CONSTRUCTOR ==========
     
-    constructor(address _wsxmrToken, address _verifierProxy, address _collateralToken) 
-        wsXmrStorage(_wsxmrToken, _verifierProxy, _collateralToken) 
+    constructor(address _wsxmrToken, address _verifierProxy) 
+        wsXmrStorage(_wsxmrToken, _verifierProxy) 
     {}
     
     // ========== MODIFIERS ==========
@@ -94,7 +96,7 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
             mintNonce: 0,
             minBurnAmount: 0,
             active: true,
-            deployedCollateralShares: 0,
+            deployedSDAIShares: 0,
             maxCoLPRangeBps: uint16(DEFAULT_COLP_RANGE_BPS),
             mintTimeoutBlocks: DEFAULT_MINT_TIMEOUT_BLOCKS,
             burnTimeoutBlocks: DEFAULT_BURN_TIMEOUT_BLOCKS
@@ -119,21 +121,22 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         
         Vault storage vault = _vaults[msg.sender];
         
-        // Transfer collateral token from user
-        IERC20(collateralToken).safeTransferFrom(msg.sender, address(this), amount);
+        // Transfer xDAI from user
+        IERC20(GnosisAddresses.XDAI).safeTransferFrom(msg.sender, address(this), amount);
         
-        // Deposit into yield-bearing vault if supported (ERC4626)
-        uint256 shares = CollateralHelpers.depositIfVault(collateralToken, amount, address(this));
+        // Approve and deposit to sDAI
+        IERC20(GnosisAddresses.XDAI).forceApprove(GnosisAddresses.SDAI, amount);
+        uint256 sDAIShares = ISavingsDAI(GnosisAddresses.SDAI).deposit(amount, address(this));
         
         _syncVaultYield(msg.sender);
         
-        vault.collateralShares += shares;
+        vault.collateralShares += sDAIShares;
         lpPrincipalDeposits[msg.sender] += amount;
         globalLpPrincipal += amount;
-        lpPrincipalShares[msg.sender] += shares;
-        globalLpPrincipalShares += shares;
+        lpPrincipalShares[msg.sender] += sDAIShares;
+        globalLpPrincipalShares += sDAIShares;
         
-        emit CollateralDeposited(msg.sender, amount, shares);
+        emit CollateralDeposited(msg.sender, amount, sDAIShares);
     }
     
     /// @inheritdoc IVaultFacet
@@ -143,21 +146,21 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         
         Vault storage vault = _vaults[msg.sender];
         
-        // Transfer collateral shares directly from user
-        IERC20(collateralToken).safeTransferFrom(msg.sender, address(this), shares);
+        // Transfer sDAI shares directly from user
+        IERC20(GnosisAddresses.SDAI).safeTransferFrom(msg.sender, address(this), shares);
         
-        // Convert shares to underlying asset value for principal tracking
-        uint256 assetValue = CollateralHelpers.toAssets(collateralToken, shares);
+        // Convert shares to underlying DAI value for principal tracking
+        uint256 daiValue = ISavingsDAI(GnosisAddresses.SDAI).convertToAssets(shares);
         
         _syncVaultYield(msg.sender);
         
         vault.collateralShares += shares;
-        lpPrincipalDeposits[msg.sender] += assetValue;
-        globalLpPrincipal += assetValue;
+        lpPrincipalDeposits[msg.sender] += daiValue;
+        globalLpPrincipal += daiValue;
         lpPrincipalShares[msg.sender] += shares;
         globalLpPrincipalShares += shares;
         
-        emit CollateralDeposited(msg.sender, assetValue, shares);
+        emit CollateralDeposited(msg.sender, daiValue, shares);
     }
     
     /// @inheritdoc IVaultFacet
@@ -187,10 +190,10 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
                 : 0;
             
             uint256 ratio;
-            if (vault.deployedCollateralShares > 0) {
+            if (vault.deployedSDAIShares > 0) {
                 // Add back deployed shares to available collateral for CR calculation
-                // The deployed collateral is still vault collateral even if position is out of range
-                uint256 totalAvailableShares = availableForDebt + vault.deployedCollateralShares;
+                // The deployed sDAI is still vault collateral even if position is out of range
+                uint256 totalAvailableShares = availableForDebt + vault.deployedSDAIShares;
                 ratio = _calculateCollateralRatio(totalAvailableShares, totalObligations);
             } else {
                 ratio = _calculateCollateralRatio(availableForDebt, totalObligations);
@@ -201,7 +204,7 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         
         vault.collateralShares -= shares;
         
-        uint256 assetsReceived = CollateralHelpers.redeemIfVault(collateralToken, shares, msg.sender, address(this));
+        uint256 daiReceived = ISavingsDAI(GnosisAddresses.SDAI).redeem(shares, msg.sender, address(this));
         
         // Deduct principal proportionally
         uint256 withdrawalProportion = (shares * 1e18) / collateralAfterSync;
@@ -225,7 +228,7 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         }
         globalLpPrincipalShares -= sharesToDeduct;
         
-        emit CollateralWithdrawn(msg.sender, assetsReceived, shares);
+        emit CollateralWithdrawn(msg.sender, daiReceived, shares);
     }
     
     // ========== VAULT CONFIGURATION ==========
@@ -336,7 +339,7 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         
         uint256 wsxmrUsd = (wsxmrAmount * xmrPrice) / WSXMR_DECIMALS;
         uint256 daiNeeded = (wsxmrUsd * 1e18) / collateralPrice;
-        uint256 sharesNeeded = CollateralHelpers.toShares(collateralToken, daiNeeded);
+        uint256 sharesNeeded = IERC4626(GnosisAddresses.SDAI).convertToShares(daiNeeded);
         
         uint256 availableIdle = vault.collateralShares > vault.lockedCollateral
             ? vault.collateralShares - vault.lockedCollateral
@@ -351,7 +354,7 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
             ? vault.maxCoLPRangeBps
             : uint16(DEFAULT_COLP_RANGE_BPS);
         
-        IERC20(collateralToken).safeTransfer(liquidityRouter, sharesNeeded);
+        IERC20(GnosisAddresses.SDAI).safeTransfer(liquidityRouter, sharesNeeded);
         IERC20(wsxmrToken).safeTransfer(liquidityRouter, wsxmrAmount);
         
         (uint256 _tokenId, uint128 liquidity, int24 tickLower, int24 tickUpper, uint256 daiConsumed, uint256 wsxmrConsumed) =
@@ -370,11 +373,11 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
             pendingReturns[msg.sender][wsxmrToken] += leftoverWsxmr;
         }
 
-        vault.deployedCollateralShares += daiConsumed;
+        vault.deployedSDAIShares += daiConsumed;
         _positionMetadata[tokenId] = PositionMetadata({
             vaultOwner: lpVault,
             user: msg.sender,
-            collateralSharesOriginal: daiConsumed,
+            sDAISharesOriginal: daiConsumed,
             wsxmrOriginal: wsxmrConsumed,
             tickLower: tickLower,
             tickUpper: tickUpper,
@@ -388,7 +391,7 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
     }
 
     /// @notice Collect accumulated fees from a co-LP position.
-    ///         Fees go to pending returns: collateral to LP vault, wsXMR to user.
+    ///         Fees go to pending returns: sDAI to LP vault, wsXMR to user.
     function collectCoLPFees(uint256 tokenId) external nonReentrant {
         PositionMetadata memory meta = _positionMetadata[tokenId];
         if (meta.vaultOwner == address(0)) revert PositionNotFound();
@@ -397,8 +400,8 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         (uint256 daiFees, uint256 wsxmrFees) = IwsXmrLiquidityRouter(liquidityRouter).collectFees(tokenId);
 
         if (daiFees > 0) {
-            pendingReturns[meta.vaultOwner][collateralToken] += daiFees;
-            globalPendingCollateral += daiFees;
+            pendingReturns[meta.vaultOwner][GnosisAddresses.SDAI] += daiFees;
+            globalPendingSDAI += daiFees;
         }
         if (wsxmrFees > 0) {
             pendingReturns[meta.user][wsxmrToken] += wsxmrFees;
@@ -429,7 +432,7 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         uint256 xmrPrice = _getXmrPriceFromStorage();
         uint256 collateralPrice = _getCollateralPriceFromStorage();
         
-        uint256 daiAmount = CollateralHelpers.toAssets(collateralToken, availableIdle);
+        uint256 daiAmount = IERC4626(GnosisAddresses.SDAI).convertToAssets(availableIdle);
         uint256 daiUsd = (daiAmount * collateralPrice) / 1e18;
         maxWsxmrAcceptable = (daiUsd * WSXMR_DECIMALS) / xmrPrice;
     }
@@ -448,26 +451,27 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         }
         
         uint256 xmrPrice = _getXmrPriceFromStorage();
-        bool outOfRange = IwsXmrLiquidityRouter(liquidityRouter).isPositionOutOfRange(tokenId, xmrPrice);
+        uint256 collateralPrice = _getCollateralPriceFromStorage();
+        bool outOfRange = IwsXmrLiquidityRouter(liquidityRouter).isPositionOutOfRange(tokenId, xmrPrice * 1e10, collateralPrice * 1e10);
         bool isOwner = msg.sender == meta.vaultOwner;
         if (!outOfRange && !isOwner) revert PositionInRange();
         
         address user = meta.user;
         (uint256 daiOut, uint256 wsxmrOut) = IwsXmrLiquidityRouter(liquidityRouter)
-            .drainPosition(tokenId, uint16(DEFAULT_COLP_SLIPPAGE_BPS), xmrPrice);
+            .drainPosition(tokenId, uint16(DEFAULT_COLP_SLIPPAGE_BPS), xmrPrice * 1e10, collateralPrice * 1e10);
 
         uint256 keeperFee = 0;
         if (!isOwner) {
             keeperFee = (daiOut * COLP_REBALANCE_FEE_BPS) / BPS_DENOMINATOR;
-            IERC20(collateralToken).safeTransfer(msg.sender, keeperFee);
+            IERC20(GnosisAddresses.SDAI).safeTransfer(msg.sender, keeperFee);
             daiOut -= keeperFee;
         }
         
         _removePositionFromArrays(tokenId, meta.vaultOwner, user);
-        if (vault.deployedCollateralShares >= meta.collateralSharesOriginal) {
-            vault.deployedCollateralShares -= meta.collateralSharesOriginal;
+        if (vault.deployedSDAIShares >= meta.sDAISharesOriginal) {
+            vault.deployedSDAIShares -= meta.sDAISharesOriginal;
         } else {
-            vault.deployedCollateralShares = 0;
+            vault.deployedSDAIShares = 0;
         }
         delete _positionMetadata[tokenId];
         
@@ -476,7 +480,7 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
             emit CoLPRebalanced(tokenId, newTokenId, meta.vaultOwner, user, msg.sender, newRangeBps);
         } else {
             if (daiOut > 0) {
-                // daiOut is already collateral tokens, add directly to collateral
+                // daiOut is already sDAI tokens (not xDAI), add directly to collateral
                 vault.collateralShares += daiOut;
             }
             if (wsxmrOut > 0) {
@@ -495,8 +499,8 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         
         pendingReturns[msg.sender][token] = 0;
         
-        if (token == collateralToken) {
-            globalPendingCollateral -= amount;
+        if (token == GnosisAddresses.SDAI) {
+            globalPendingSDAI -= amount;
         }
         
         if (token == address(0)) {
@@ -630,8 +634,7 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
             actualDebt,
             vault.pendingDebt,
             xmrPrice,
-            collateralPrice,
-            collateralToken
+            collateralPrice
         );
         
         if (yieldShares > 0) {
@@ -649,20 +652,20 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         return CollateralLogic.calculateRatioFromShares(
             collateralShares,
             debtAmount,
-            collateralToken,
+            GnosisAddresses.SDAI,
             collateralPrice,
             xmrPrice
         );
     }
     
-    function _getVaultPositionTotalsAtOracle(address vaultAddr, uint256 xmrPrice)
+    function _getVaultPositionTotalsAtOracle(address vaultAddr, uint256 xmrPrice, uint256 collateralPrice)
         internal view
         returns (uint256 totalDAI, uint256 totalWsxmr)
     {
         uint256[] memory positions = _vaultPositions[vaultAddr];
         for (uint256 i = 0; i < positions.length; i++) {
             (uint256 dai, uint256 wsxmr) = IwsXmrLiquidityRouter(liquidityRouter)
-                .getPositionAmountsAtPrice(positions[i], xmrPrice);
+                .getPositionAmountsAtPrice(positions[i], xmrPrice * 1e10, collateralPrice * 1e10);
             totalDAI += dai;
             totalWsxmr += wsxmr;
         }
@@ -672,14 +675,15 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         PositionMetadata memory meta = _positionMetadata[tokenId];
         Vault storage vault = _vaults[meta.vaultOwner];
         uint256 xmrPrice = _getXmrPriceFromStorage();
+        uint256 collateralPrice = _getCollateralPriceFromStorage();
         
         (uint256 daiOut, uint256 wsxmrOut) = IwsXmrLiquidityRouter(liquidityRouter)
-            .drainPosition(tokenId, uint16(DEFAULT_COLP_SLIPPAGE_BPS), xmrPrice);
+            .drainPosition(tokenId, uint16(DEFAULT_COLP_SLIPPAGE_BPS), xmrPrice * 1e10, collateralPrice * 1e10);
         
-        if (vault.deployedCollateralShares >= meta.collateralSharesOriginal) {
-            vault.deployedCollateralShares -= meta.collateralSharesOriginal;
+        if (vault.deployedSDAIShares >= meta.sDAISharesOriginal) {
+            vault.deployedSDAIShares -= meta.sDAISharesOriginal;
         } else {
-            vault.deployedCollateralShares = 0;
+            vault.deployedSDAIShares = 0;
         }
         
         if (daiOut > 0) {
@@ -726,7 +730,7 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
         Vault storage vault = _vaults[lpVault];
         uint256 xmrPrice = _getXmrPriceFromStorage();
         
-        IERC20(collateralToken).safeTransfer(liquidityRouter, daiAmount);
+        IERC20(GnosisAddresses.SDAI).safeTransfer(liquidityRouter, daiAmount);
         IERC20(wsxmrToken).safeTransfer(liquidityRouter, wsxmrAmount);
         
         (uint256 _tokenId, uint128 liquidity, int24 tickLower, int24 tickUpper, uint256 daiConsumed, uint256 wsxmrConsumed) =
@@ -745,12 +749,12 @@ contract VaultFacet is wsXmrStorage, IVaultFacet {
             pendingReturns[user][wsxmrToken] += leftoverWsxmr;
         }
 
-        vault.deployedCollateralShares += daiConsumed;
+        vault.deployedSDAIShares += daiConsumed;
 
         _positionMetadata[tokenId] = PositionMetadata({
             vaultOwner: lpVault,
             user: user,
-            collateralSharesOriginal: daiConsumed,
+            sDAISharesOriginal: daiConsumed,
             wsxmrOriginal: wsxmrConsumed,
             tickLower: tickLower,
             tickUpper: tickUpper,

@@ -16,6 +16,3 @@
 [submodule "ethereum/lib/v3-core"]
 	path = ethereum/lib/v3-core
 	url = https://github.com/uniswap/v3-core
-[submodule "ethereum/lib/v3-periphery"]
-	path = ethereum/lib/v3-periphery
-	url = https://github.com/uniswap/v3-periphery

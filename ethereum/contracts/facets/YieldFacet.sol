@@ -8,14 +8,15 @@ import {IYieldFacet} from "../interfaces/facets/IYieldFacet.sol";
 import {IOracleFacet} from "../interfaces/facets/IOracleFacet.sol";
 import {IwsXmrHub} from "../interfaces/core/IwsXmrHub.sol";
 import {ISwapRouter} from "../interfaces/external/ISwapRouter.sol";
+import {ISavingsDAI} from "../interfaces/external/ISavingsDAI.sol";
 import {YieldLogic} from "../libraries/YieldLogic.sol";
-import {CollateralHelpers} from "../libraries/CollateralHelpers.sol";
+import {GnosisAddresses} from "../GnosisAddresses.sol";
 
 contract YieldFacet is wsXmrStorage, IYieldFacet {
     using SafeERC20 for IERC20;
     
-    constructor(address _wsxmrToken, address _verifierProxy, address _collateralToken) 
-        wsXmrStorage(_wsxmrToken, _verifierProxy, _collateralToken) 
+    constructor(address _wsxmrToken, address _verifierProxy) 
+        wsXmrStorage(_wsxmrToken, _verifierProxy) 
     {}
     
     function triggerBuyAndBurn(uint24 poolFeeTier) external {
@@ -28,42 +29,40 @@ contract YieldFacet is wsXmrStorage, IYieldFacet {
         
         if (spotPrice > (emaPrice * EMA_TRIGGER_THRESHOLD) / 100) revert XMRNotDipped();
         
-        uint256 collateralToSpend = (yieldWarChest * BUY_CHUNK_PERCENT) / 100;
-        if (collateralToSpend == 0) revert WarChestEmpty();
+        uint256 sDAIToSpend = (yieldWarChest * BUY_CHUNK_PERCENT) / 100;
+        if (sDAIToSpend == 0) revert WarChestEmpty();
 
-        // L1: Carve keeper reward out before swapping so it stays backed
-        uint256 keeperReward = (collateralToSpend * 200) / 10000;
-        uint256 collateralForSwap = collateralToSpend - keeperReward;
+        // L1: Carve keeper reward out before redeeming so it stays backed
+        uint256 keeperReward = (sDAIToSpend * 200) / 10000;
+        uint256 sDAIForSwap = sDAIToSpend - keeperReward;
 
-        yieldWarChest -= collateralToSpend;
+        yieldWarChest -= sDAIToSpend;
         lastBuyTimestamp = block.timestamp;
 
-        // For ERC4626 collateral, redeem shares to assets first.
-        // For plain ERC20 (e.g. WETH), redeemIfVault returns shares (1:1).
-        uint256 assetAmount = CollateralHelpers.redeemIfVault(collateralToken, collateralForSwap, address(this), address(this));
+        uint256 daiAmount = ISavingsDAI(GnosisAddresses.SDAI).redeem(sDAIForSwap, address(this), address(this));
 
-        IERC20(collateralToken).forceApprove(swapRouter, assetAmount);
+        IERC20(GnosisAddresses.XDAI).forceApprove(GnosisAddresses.UNISWAP_V3_ROUTER, daiAmount);
 
-        uint256 minWsxmr = (assetAmount * PRICE_PRECISION * (10000 - MEV_SLIPPAGE_BPS)) / (spotPrice * 10000);
+        uint256 minWsxmr = (daiAmount * PRICE_PRECISION * (10000 - MEV_SLIPPAGE_BPS)) / (spotPrice * 10000);
 
         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
-            tokenIn: collateralToken,
+            tokenIn: GnosisAddresses.XDAI,
             tokenOut: wsxmrToken,
             fee: poolFeeTier,
             recipient: address(this),
             deadline: block.timestamp,
-            amountIn: assetAmount,
+            amountIn: daiAmount,
             amountOutMinimum: minWsxmr,
             sqrtPriceLimitX96: 0
         });
 
-        uint256 wsxmrBought = ISwapRouter(swapRouter).exactInputSingle(params);
+        uint256 wsxmrBought = ISwapRouter(GnosisAddresses.UNISWAP_V3_ROUTER).exactInputSingle(params);
 
-        // Queue keeper reward in collateral shares (still backed, never swapped)
+        // Queue keeper reward in sDAI shares (still backed, never redeemed to xDAI)
         if (keeperReward > 0) {
-            pendingReturns[msg.sender][collateralToken] += keeperReward;
-            globalPendingCollateral += keeperReward;
-            emit ReturnQueued(msg.sender, collateralToken, keeperReward);
+            pendingReturns[msg.sender][GnosisAddresses.SDAI] += keeperReward;
+            globalPendingSDAI += keeperReward;
+            emit ReturnQueued(msg.sender, GnosisAddresses.SDAI, keeperReward);
         }
         
         IwsXmrHub(address(this)).burnTokens(address(this), wsxmrBought);
@@ -78,7 +77,7 @@ contract YieldFacet is wsXmrStorage, IYieldFacet {
             _migrateDebtIndex();
         }
         
-        emit BuyAndBurnExecuted(collateralToSpend, wsxmrBought, keeperReward, globalDebtIndex);
+        emit BuyAndBurnExecuted(sDAIToSpend, wsxmrBought, keeperReward, globalDebtIndex);
     }
     
     /// @notice Migrate debt index when it drops too low to prevent precision loss
@@ -120,8 +119,7 @@ contract YieldFacet is wsXmrStorage, IYieldFacet {
             actualDebt,
             vault.pendingDebt,
             xmrPrice,
-            collateralPrice,
-            collateralToken
+            collateralPrice
         );
         
         if (yieldShares > 0) {
@@ -172,8 +170,7 @@ contract YieldFacet is wsXmrStorage, IYieldFacet {
             actualDebt,
             pendingDebt,
             xmrPrice,
-            collateralPrice,
-            collateralToken
+            collateralPrice
         );
     }
     
