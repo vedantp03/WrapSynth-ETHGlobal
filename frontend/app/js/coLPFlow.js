@@ -98,6 +98,13 @@ export class CoLPFlow {
         const currentAllowance = await this.getWsxmrAllowance();
         if (currentAllowance < amount) {
             await writeWsxmr('approve', [CONTRACTS.hub, amount]);
+            // Poll for RPC state to catch up — public HTTP RPCs can lag behind wallet broadcast
+            let retries = 10;
+            while (retries-- > 0) {
+                const newAllowance = await this.getWsxmrAllowance();
+                if (newAllowance >= amount) break;
+                await new Promise(r => setTimeout(r, 500));
+            }
         }
 
         // userOpenCoLP mints a UniV3 NFT — needs high gas limit
@@ -307,7 +314,13 @@ export class CoLPFlow {
                 });
                 allEvents.push(...chunk);
             } catch (err) {
-                console.warn(`${logPrefix} chunk ${start}-${end} failed with ${chunkSize} blocks:`, err.message || err);
+                const msg = err.message || '';
+                const isRateLimit = /429|rate limit|too many/i.test(msg);
+                if (isRateLimit) {
+                    console.warn(`${logPrefix} rate limited on chunk ${start}-${end}, backing off 2s...`);
+                    await new Promise(r => setTimeout(r, 2000));
+                }
+                console.warn(`${logPrefix} chunk ${start}-${end} failed with ${chunkSize} blocks:`, msg || err);
                 // Retry with smaller 500-block chunks
                 if (chunkSize > 500n) {
                     console.log(`${logPrefix} retrying ${start}-${end} with 500-block chunks...`);
@@ -322,6 +335,8 @@ export class CoLPFlow {
                     console.warn(`${logPrefix} skipping block range ${start}-${end}`);
                 }
             }
+            // Throttle: small delay between chunks to avoid RPC rate limits
+            await new Promise(r => setTimeout(r, 300));
         }
         console.log(`${logPrefix} total events collected:`, allEvents.length);
         return allEvents;

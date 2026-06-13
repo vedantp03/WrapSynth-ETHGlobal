@@ -2577,6 +2577,10 @@ body.app-page .container {
     background: #eab308;
 }
 
+.legend-dot.colp-dot {
+    background: #3b82f6;
+}
+
 .legend-text {
     display: flex;
     flex-direction: column;

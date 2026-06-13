@@ -27,7 +27,18 @@ export async function updateOraclePrices() {
     const feedIDs = [ORACLE_CONFIG.xmrFeedId, ORACLE_CONFIG.ethFeedId].join(',');
 
     console.log(`Fetching reports from ${proxyUrl}...`);
-    const res = await fetch(`${proxyUrl}/reports?feedIDs=${feedIDs}`);
+    let res;
+    try {
+        res = await fetch(`${proxyUrl}/reports?feedIDs=${feedIDs}`);
+    } catch (fetchErr) {
+        if (fetchErr.message?.includes('Failed to fetch') || fetchErr.message?.includes('ECONNREFUSED')) {
+            throw new Error(
+                `Cannot reach report proxy at ${proxyUrl}. ` +
+                `Make sure the LP server is running (npm start in lp-server/).`
+            );
+        }
+        throw fetchErr;
+    }
     if (!res.ok) {
         const body = await res.text().catch(() => '');
         throw new Error(`Report proxy ${res.status}: ${body || res.statusText}`);
