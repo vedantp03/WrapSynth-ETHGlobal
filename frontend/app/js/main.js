@@ -239,7 +239,7 @@ async function fetch24hVolume() {
         if (volumeUsd >= 1000) {
             volumeElement.textContent = `$${(volumeUsd / 1000).toFixed(1)}K`;
         } else if (volumeUsd >= 1) {
-            volumeElement.textContent = `$${volumeUsd.toFixed(0)}`;
+            volumeElement.textContent = `$${volumeUsd.toFixed(2)}`;
         } else if (volumeUsd > 0) {
             volumeElement.textContent = `$${volumeUsd.toFixed(2)}`;
         } else {

@@ -339,6 +339,16 @@ class PhantomAgent {
     }
 
     /**
+     * Get the private view key as hex
+     */
+    getPrivateViewKeyHex() {
+        if (!this.keySet) {
+            throw new Error('Agent not initialized');
+        }
+        return '0x' + this.keySet.privateViewKey.toString(16).padStart(64, '0');
+    }
+
+    /**
      * Get the commitment
      */
     getCommitment() {

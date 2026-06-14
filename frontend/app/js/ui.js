@@ -1326,6 +1326,148 @@ export function launchConfetti() {
 }
 
 /**
+ * Launch fire particles - rising flames from bottom of screen
+ */
+export function launchFire() {
+    const canvas = document.createElement('canvas');
+    canvas.id = 'fire-canvas';
+    document.body.appendChild(canvas);
+
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const particles = [];
+    const fireColors = ['#ff4500', '#ff6b00', '#ff8c00', '#ffa500', '#ff6347', '#ff2400', '#ffb347'];
+    const totalParticles = 300;
+
+    function spawnParticle(delay = 0) {
+        const w = canvas.width;
+        const h = canvas.height;
+        const size = Math.random() * 6 + 2;
+
+        particles.push({
+            x: Math.random() * w,
+            y: h + Math.random() * 50 + delay,
+            vx: (Math.random() - 0.5) * 2,
+            vy: -(Math.random() * 3 + 4),
+            size: size,
+            color: fireColors[Math.floor(Math.random() * fireColors.length)],
+            opacity: 0,
+            fadeIn: 0.02 + Math.random() * 0.03,
+            decay: 0.005 + Math.random() * 0.008,
+            maxOpacity: 0.5 + Math.random() * 0.5,
+            phase: 'in',
+            flicker: Math.random() * Math.PI * 2
+        });
+    }
+
+    for (let i = 0; i < totalParticles; i++) {
+        spawnParticle(i * 1.5);
+    }
+
+    let animationId;
+    function animate() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        let active = 0;
+
+        for (const p of particles) {
+            if (p.opacity <= 0 && p.phase === 'out') continue;
+            active++;
+
+            p.x += p.vx + Math.sin(p.flicker) * 0.5;
+            p.y += p.vy;
+            p.flicker += 0.1;
+            p.size *= 0.998;
+
+            if (p.phase === 'in') {
+                p.opacity += p.fadeIn;
+                if (p.opacity >= p.maxOpacity) {
+                    p.opacity = p.maxOpacity;
+                    p.phase = 'rising';
+                }
+            } else if (p.phase === 'rising') {
+                p.opacity -= p.decay;
+                if (p.opacity <= 0) {
+                    p.opacity = 0;
+                    p.phase = 'out';
+                }
+            }
+
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, p.opacity);
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        if (active > 0) {
+            animationId = requestAnimationFrame(animate);
+        } else {
+            cancelAnimationFrame(animationId);
+            canvas.remove();
+        }
+    }
+
+    animate();
+
+    // Resize handler
+    const onResize = () => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    };
+    window.addEventListener('resize', onResize);
+    const observer = new MutationObserver(() => {
+        if (!document.body.contains(canvas)) {
+            window.removeEventListener('resize', onResize);
+            observer.disconnect();
+        }
+    });
+    observer.observe(document.body, { childList: true });
+}
+
+/**
+ * Show burn complete inline banner + fire (no modal)
+ */
+export function showBurnComplete(amount) {
+    const burnPanel = document.getElementById('burn-panel');
+    if (!burnPanel) return;
+
+    // Remove any existing banner
+    const existing = burnPanel.querySelector('.burn-complete-banner');
+    if (existing) existing.remove();
+
+    const banner = document.createElement('div');
+    banner.className = 'burn-complete-banner';
+    banner.innerHTML = `
+        <div class="burn-complete-inner">
+            <h3>Burn Complete</h3>
+            <p>Successfully burned ${amount} wsXMR and received XMR!</p>
+        </div>
+        <span class="burn-complete-timer">0s ago</span>
+    `;
+    burnPanel.insertBefore(banner, burnPanel.firstChild);
+
+    const timerEl = banner.querySelector('.burn-complete-timer');
+    let seconds = 0;
+    const timerId = setInterval(() => {
+        seconds++;
+        if (seconds >= 60) {
+            clearInterval(timerId);
+            banner.remove();
+            return;
+        }
+        if (timerEl) {
+            timerEl.textContent = seconds + 's ago';
+        }
+    }, 1000);
+
+    launchFire();
+}
+
+/**
  * Get UI elements (for event handlers)
  */
 export function getElements() {

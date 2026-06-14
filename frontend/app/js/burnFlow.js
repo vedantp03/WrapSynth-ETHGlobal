@@ -4,7 +4,7 @@ import { CONTRACTS, ABIS, DECIMALS, SWAP_CONFIG } from './config.js';
 import { readHub, writeHub, writeHubUnsafe, readWsxmr, writeWsxmr, watchContractEvent, getUserAddress } from './viemClient.js';
 import { getPhantomAgent } from './phantomAgent.js';
 import { saveActiveSwap, updateSwapState, clearActiveSwap, saveToHistory } from './storage.js';
-import { updateBurnProgress, showBurnVerificationLoading, showBurnVerificationDetails, showBurnVerificationManual, showBurnAddressPanel } from './ui.js';
+import { updateBurnProgress, showBurnVerificationLoading, showBurnVerificationDetails, showBurnVerificationManual, showBurnAddressPanel, showBurnComplete } from './ui.js';
 import { getMoneroRpc } from './moneroRpc.js';
 import { keccak256, toHex } from 'https://esm.sh/viem@2.7.0';
 
@@ -201,16 +201,36 @@ export class BurnFlow {
 
         if (pastEvents && pastEvents.length > 0) {
             console.log('Found existing HashProposed event - LP has already sent XMR!');
-            const event = pastEvents[0].args;
+            console.log('Past event:', pastEvents[0]);
+            
+            // Handle both event.args and direct event access patterns
+            const event = pastEvents[0].args || pastEvents[0];
+            
+            if (!event.secretHash) {
+                console.error('Past event missing secretHash:', event);
+                throw new Error('HashProposed event missing secretHash');
+            }
+            
             this.secretHash = event.secretHash;
-            const lpPublicSpendKey = event.lpPublicSpendKey;
-            const lpPublicViewKey = event.lpPublicViewKey;
+            let lpPublicSpendKey = event.lpPublicSpendKey;
+            let lpPublicViewKey = event.lpPublicViewKey;
+            
+            // FIX: The on-chain Ed25519Helper.compressPoint returns big-endian,
+            // but @noble/ed25519 expects little-endian. Reverse the bytes.
+            function reverseBytes(hex) {
+                hex = hex.replace(/^0x/, '');
+                const reversed = hex.match(/.{2}/g).reverse().join('');
+                return '0x' + reversed;
+            }
+            lpPublicSpendKey = reverseBytes(lpPublicSpendKey);
+            lpPublicViewKey = reverseBytes(lpPublicViewKey);
             
             // Derive the shared Monero address
             const { computeDepositAddress } = await import('./moneroCrypto.js');
-            const userCommitment = this.agent.getCommitment();
-            const moneroAddress = await computeDepositAddress(userCommitment, lpPublicSpendKey, lpPublicViewKey);
-            const viewKey = this.agent.getPrivateViewKeyHex();
+            const { toHex } = await import('https://esm.sh/viem@2.7.0');
+            const userPublicKey = toHex(this.agent.keySet.publicSpendKey);
+            const moneroAddress = await computeDepositAddress(userPublicKey, lpPublicSpendKey, lpPublicViewKey);
+            const viewKey = '0x' + this.agent.keySet.privateViewKey.toString(16).padStart(64, '0');
             
             console.log('Derived Monero address:', moneroAddress);
             console.log('View key:', viewKey);
@@ -248,18 +268,55 @@ export class BurnFlow {
                 ABIS.hub,
                 'HashProposed',
                 { requestId: this.requestId },
-                async (log) => {
+                async (logs) => {
                     console.log('HashProposed event received - LP has sent XMR!');
+                    console.log('Raw logs:', logs);
+                    
+                    // onLogs receives an array of logs
+                    if (!logs || logs.length === 0) {
+                        console.error('No logs received');
+                        return;
+                    }
+                    
+                    const log = logs[0];
                     const event = log.args;
+                    
+                    console.log('Event args:', event);
+                    console.log('secretHash:', event?.secretHash);
+                    console.log('lpPublicSpendKey:', event?.lpPublicSpendKey);
+                    console.log('lpPublicViewKey:', event?.lpPublicViewKey);
+                    
+                    if (!event || !event.secretHash) {
+                        console.error('Event missing secretHash:', event);
+                        reject(new Error('HashProposed event missing secretHash'));
+                        return;
+                    }
+                    
                     this.secretHash = event.secretHash;
-                    const lpPublicSpendKey = event.lpPublicSpendKey;
-                    const lpPublicViewKey = event.lpPublicViewKey;
+                    let lpPublicSpendKey = event.lpPublicSpendKey;
+                    let lpPublicViewKey = event.lpPublicViewKey;
+                    
+                    // FIX: The on-chain Ed25519Helper.compressPoint returns big-endian,
+                    // but @noble/ed25519 expects little-endian. Reverse the bytes.
+                    function reverseBytes(hex) {
+                        hex = hex.replace(/^0x/, '');
+                        const reversed = hex.match(/.{2}/g).reverse().join('');
+                        return '0x' + reversed;
+                    }
+                    lpPublicSpendKey = reverseBytes(lpPublicSpendKey);
+                    lpPublicViewKey = reverseBytes(lpPublicViewKey);
+                    
+                    console.log('About to compute deposit address with:');
+                    console.log('  lpPublicSpendKey (reversed):', lpPublicSpendKey);
+                    console.log('  lpPublicViewKey (reversed):', lpPublicViewKey);
                     
                     // Derive the shared Monero address
                     const { computeDepositAddress } = await import('./moneroCrypto.js');
-                    const userCommitment = this.agent.getCommitment();
-                    const moneroAddress = await computeDepositAddress(userCommitment, lpPublicSpendKey, lpPublicViewKey);
-                    const viewKey = this.agent.getPrivateViewKeyHex();
+                    const { toHex } = await import('https://esm.sh/viem@2.7.0');
+                    const userPublicKey = toHex(this.agent.keySet.publicSpendKey);
+                    console.log('User public key:', userPublicKey);
+                    const moneroAddress = await computeDepositAddress(userPublicKey, lpPublicSpendKey, lpPublicViewKey);
+                    const viewKey = '0x' + this.agent.keySet.privateViewKey.toString(16).padStart(64, '0');
                     
                     console.log('Derived Monero address:', moneroAddress);
                     console.log('View key:', viewKey);
@@ -495,9 +552,10 @@ export class BurnFlow {
                 ABIS.hub,
                 'BurnFinalized',
                 { requestId: this.requestId },
-                (log) => {
+                (logs) => {
                     console.log('BurnFinalized event received');
-                    const secret = log.args.secret;
+                    const log = logs[0];
+                    const secret = log.args?.secret || log.args?.[0];
                     console.log('Secret revealed:', secret);
                     unwatch();
                     resolve(secret);
@@ -529,6 +587,9 @@ export class BurnFlow {
         saveToHistory(swapData);
         clearActiveSwap();
         this.cleanup();
+        
+        updateBurnProgress('complete', 'Burn complete! XMR sent successfully');
+        showBurnComplete(this.wsxmrAmount);
         
         console.log('Burn flow completed successfully!');
     }

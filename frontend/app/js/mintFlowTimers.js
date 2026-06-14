@@ -1,5 +1,7 @@
 // Deadline timer and status polling for MintFlow
 
+const BLOCK_TIME_SECONDS = 2; // Base Sepolia block time
+
 export async function startDeadlineTimer(mintFlow) {
     // If we don't have the on-chain timeout yet, query it now
     if (!mintFlow.timeout) {
@@ -18,46 +20,78 @@ export async function startDeadlineTimer(mintFlow) {
     const warningElement = document.getElementById('mint-deadline-warning');
     const timerContainer = document.getElementById('mint-deadline-timer');
     const depositInfo = document.getElementById('mint-deposit-info');
-    
+
     if (!timerElement) return;
 
-    // Prevent duplicate timers
-    if (mintFlow.deadlineInterval) {
+    // Prevent duplicate timers — set flag immediately before any async work
+    if (mintFlow._deadlineTimerActive) {
         console.log('Timer: already running, skipping duplicate start');
         timerContainer?.classList.remove('hidden');
         warningElement?.classList.add('hidden');
         return;
     }
+    mintFlow._deadlineTimerActive = true;
 
     // Show timer
     timerContainer?.classList.remove('hidden');
     warningElement?.classList.add('hidden');
 
     let running = true;
+    let deadlineTimestamp = null;
+    let lastBlocksRemaining = null;
+    let tickCount = 0;
 
     const updateTimer = async () => {
         if (!running) return;
         try {
-            const { getPublicClient } = await import('./viemClient.js');
-            const publicClient = getPublicClient();
-            const currentBlock = await publicClient.getBlockNumber();
-            
-            const blocksRemaining = Number(mintFlow.timeout) - Number(currentBlock);
-            
+            let blocksRemaining;
+
+            if (deadlineTimestamp === null || tickCount % 6 === 0) {
+                // Query chain on first run and every ~30s to correct drift
+                const { getPublicClient } = await import('./viemClient.js');
+                const publicClient = getPublicClient();
+                const currentBlock = Number(await publicClient.getBlockNumber());
+
+                blocksRemaining = Number(mintFlow.timeout) - currentBlock;
+
+                // Prevent backward jumps from RPC jitter
+                if (lastBlocksRemaining !== null && blocksRemaining > lastBlocksRemaining) {
+                    blocksRemaining = lastBlocksRemaining;
+                }
+
+                // Anchor a local deadline on first successful query
+                if (deadlineTimestamp === null && blocksRemaining > 0) {
+                    deadlineTimestamp = Date.now() + blocksRemaining * BLOCK_TIME_SECONDS * 1000;
+                }
+
+                lastBlocksRemaining = blocksRemaining;
+            } else {
+                // Count down locally between chain polls
+                const secondsRemaining = Math.max(0, Math.floor((deadlineTimestamp - Date.now()) / 1000));
+                blocksRemaining = Math.max(0, Math.ceil(secondsRemaining / BLOCK_TIME_SECONDS));
+                lastBlocksRemaining = blocksRemaining;
+            }
+
+            tickCount++;
+
             if (blocksRemaining <= 0) {
                 // EXPIRED!
                 running = false;
-                mintFlow.deadlineInterval = null;
-                
+                mintFlow._deadlineTimerActive = false;
+                if (mintFlow.deadlineInterval) {
+                    clearTimeout(mintFlow.deadlineInterval);
+                    mintFlow.deadlineInterval = null;
+                }
+
                 // Show inline Cancel & Refund UI instead of modal
                 timerContainer?.classList.remove('hidden');
                 timerContainer?.classList.add('alert-error');
                 timerContainer?.classList.remove('alert-warning');
                 timerElement.innerHTML = '<strong>EXPIRED</strong> &mdash; Mint timeout reached';
-                
+
                 // Hide deposit info to prevent user from sending XMR
                 depositInfo?.classList.add('hidden');
-                
+
                 // Show Cancel & Refund button inside the timer container
                 let refundBtn = timerContainer?.querySelector('.btn-refund');
                 if (timerContainer && !refundBtn) {
@@ -71,13 +105,13 @@ export async function startDeadlineTimer(mintFlow) {
                         try {
                             const { readHub, writeHub, getPublicClient } = await import('./viemClient.js');
                             const publicClient = getPublicClient();
-                            
+
                             // Check current on-chain status before deciding action
                             const mintReq = await readHub('getMintRequest', [mintFlow.requestId]);
                             const status = Number(mintReq.status);
                             const currentBlock = await publicClient.getBlockNumber();
                             // MintStatus: 0=INVALID, 1=PENDING, 2=KEY_PROVIDED, 3=READY, 4=COMPLETED, 5=CANCELLED
-                            
+
                             if (status === 5) {
                                 // Already cancelled by LP node; claim refund via withdrawReturns
                                 refundBtn.textContent = 'Claiming refund...';
@@ -93,7 +127,7 @@ export async function startDeadlineTimer(mintFlow) {
                                 // Still cancellable; verify timeout before calling cancelMint
                                 if (currentBlock < mintReq.timeout) {
                                     const blocksRemaining = Number(mintReq.timeout) - Number(currentBlock);
-                                    const estSeconds = blocksRemaining * 5;
+                                    const estSeconds = blocksRemaining * BLOCK_TIME_SECONDS;
                                     const mins = Math.floor(estSeconds / 60);
                                     const secs = estSeconds % 60;
                                     throw new Error(
@@ -129,22 +163,22 @@ export async function startDeadlineTimer(mintFlow) {
                     };
                     timerContainer.appendChild(refundBtn);
                 }
-                
+
                 console.error('⚠️ MINT EXPIRED - DO NOT SEND XMR');
                 return;
             }
-            
-            // Calculate time remaining (5 seconds per block)
-            const secondsRemaining = blocksRemaining * 5;
+
+            // Calculate time remaining from local anchor
+            const secondsRemaining = Math.max(0, Math.floor((deadlineTimestamp - Date.now()) / 1000));
             const hours = Math.floor(secondsRemaining / 3600);
             const minutes = Math.floor((secondsRemaining % 3600) / 60);
             const seconds = secondsRemaining % 60;
-            
+
             let timeStr = '';
             if (hours > 0) timeStr += `${hours}h `;
             timeStr += `${minutes}m ${seconds}s`;
             timerElement.textContent = `${timeStr} (${blocksRemaining} blocks)`;
-            
+
             // Warning if less than 10 minutes
             if (secondsRemaining < 600) {
                 timerContainer?.classList.add('alert-error');
@@ -153,11 +187,11 @@ export async function startDeadlineTimer(mintFlow) {
                 timerContainer?.classList.add('alert-warning');
                 timerContainer?.classList.remove('alert-error');
             }
-            
+
         } catch (error) {
             console.error('Error updating timer:', error);
         }
-        
+
         // Self-reschedule for robust async polling (prevents stacking if RPC is slow)
         if (running) {
             mintFlow.deadlineInterval = setTimeout(updateTimer, 5000);
@@ -183,4 +217,5 @@ export function stopTimers(mintFlow) {
     if (mintFlow.statusPollInterval) {
         clearInterval(mintFlow.statusPollInterval);
     }
+    mintFlow._deadlineTimerActive = false;
 }
