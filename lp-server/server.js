@@ -224,7 +224,7 @@ app.post('/mint/key', async (req, res) => {
     return res.status(400).json({ error: 'lpPublicSpendKey and lpPublicViewKey required' });
   }
 
-  const reqIdHex = ethers.utils.hexlify(requestId);
+  const reqIdHex = ethers.hexlify(requestId);
   console.log(`[HTTP] Received LP key for ${reqIdHex}`);
 
   try {

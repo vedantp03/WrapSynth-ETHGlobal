@@ -979,7 +979,9 @@ cargo build --release</code>
         const res = await fetch('/deployment.json?v=' + Date.now());
         if (!res.ok) throw new Error('Failed to load deployment.json: ' + res.status);
         window.DEPLOYMENT = await res.json();
+        console.log('[Init] Loaded deployment config:', window.DEPLOYMENT.lpConfig);
+        // Now load main.js after deployment is ready
+        await import('./js/main.js?v=' + Date.now());
     </script>
-    <script type="module" src="./js/main.js?v=1736543655"></script>
 </body>
 </html>
