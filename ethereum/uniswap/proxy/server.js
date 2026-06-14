@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import * as unlink from './unlinkCustodial.js';
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -127,6 +128,62 @@ app.post('/uniswap/swap', async (req, res) => {
     } catch (err) {
         console.error('[swap] network error:', err.message);
         return res.status(502).json({ error: 'Upstream unreachable', detail: err.message });
+    }
+});
+
+// ─── Custodial Unlink private transfers ──────────────────────────────────────
+// The server holds one Unlink identity + funded wallet and sends privately on
+// the caller's behalf (see unlinkCustodial.js).
+
+// GET /api/unlink/info → { unlinkAddress, evmAddress, token, decimals, balanceRaw, balance }
+app.get('/api/unlink/info', async (_req, res) => {
+    try {
+        res.json(await unlink.getInfo());
+    } catch (err) {
+        console.error('[unlink/info]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/unlink/send → { recipientAddress: "unlink1…", amount }
+app.post('/api/unlink/send', async (req, res) => {
+    const { recipientAddress, amount } = req.body || {};
+    if (!recipientAddress || !recipientAddress.startsWith('unlink1')) {
+        return res.status(400).json({ error: 'recipientAddress must be a valid unlink1… address' });
+    }
+    if (!amount) {
+        return res.status(400).json({ error: 'amount is required' });
+    }
+    try {
+        console.log(`[unlink/send] ${amount} -> ${recipientAddress}`);
+        res.json(await unlink.sendPrivate({ recipientAddress, amount }));
+    } catch (err) {
+        console.error('[unlink/send]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/unlink/withdraw → { recipientEvmAddress: "0x…", amount }
+app.post('/api/unlink/withdraw', async (req, res) => {
+    const { recipientEvmAddress, amount } = req.body || {};
+    if (!amount) return res.status(400).json({ error: 'amount is required' });
+    try {
+        res.json(await unlink.withdraw({ recipientEvmAddress, amount }));
+    } catch (err) {
+        console.error('[unlink/withdraw]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/unlink/shield → { amount }  (manual top-up of the shielded balance)
+app.post('/api/unlink/shield', async (req, res) => {
+    const { amount } = req.body || {};
+    if (!amount) return res.status(400).json({ error: 'amount is required' });
+    try {
+        res.json(await unlink.shield({ amount }));
+    } catch (err) {
+        console.error('[unlink/shield]', err.message);
+        res.status(500).json({ error: err.message });
     }
 });
 
