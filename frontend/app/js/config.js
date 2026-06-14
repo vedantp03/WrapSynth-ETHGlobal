@@ -42,6 +42,7 @@ export const CONTRACTS = {
     liquidityRouter: DC.liquidityRouter || '0x0F9172c037eC5dFFa940aFa357Ee0A52B5a08d71',
     wETH: '0x4200000000000000000000000000000000000006',
     uniswapV3Pool: DP.uniswapV3Pool || '0x79cF96e0FA6aBE3cF02994B35c68A69359857Ae9',
+    wsxmrWethSwapPool: DP.wsxmrWethSwapPool || '0xf34e4c3289187aDd920E8c5db3590D482ed4E3E9',
     // Default LP vault to use for mints (the active LP running the LP node)
     defaultLpVault: DLC.defaultLpVault || null
 };
@@ -105,6 +106,23 @@ export const DECIMALS = {
     XMR: 12,       // Monero atomic units decimals
     ETH: 18,       // ETH decimals
     USD: 18        // Pyth price decimals
+};
+
+// Unlink private-send configuration (custodial server model).
+//
+// The Unlink tab lets anyone send tWSXMR privately to a recipient `unlink1…`
+// address. A custodial server (the Uniswap proxy, see
+// ethereum/uniswap/proxy/server.js) holds the Unlink identity + funded wallet
+// and performs the shield (deposit) + private transfer on the caller's behalf —
+// no wallet signature, no per-user key. The frontend just calls its REST API
+// (see js/unlinkFlow.js).
+//
+// `baseUrl` is the custodial server origin that hosts /api/unlink/*. Override
+// per-deployment via window.UNLINK_BACKEND_URL.
+export const UNLINK_CONFIG = {
+    baseUrl: (typeof window !== 'undefined' && window.UNLINK_BACKEND_URL) || 'http://localhost:3002',
+    tokenSymbol: 'wsXMR',
+    tokenDecimals: 8,
 };
 
 // Monero Network Configuration

@@ -135,13 +135,22 @@ app.post('/uniswap/swap', async (req, res) => {
 // The server holds one Unlink identity + funded wallet and sends privately on
 // the caller's behalf (see unlinkCustodial.js).
 
+// Unwrap nested fetch/undici errors ("fetch failed") so the real cause (RPC
+// rate-limit, DNS, timeout) is visible to the client and in logs.
+function errMsg(err) {
+    const parts = [err?.message];
+    if (err?.cause) parts.push(err.cause.message || err.cause.code || String(err.cause));
+    if (err?.cause?.cause) parts.push(err.cause.cause.message || err.cause.cause.code);
+    return parts.filter(Boolean).join(' — ');
+}
+
 // GET /api/unlink/info → { unlinkAddress, evmAddress, token, decimals, balanceRaw, balance }
 app.get('/api/unlink/info', async (_req, res) => {
     try {
         res.json(await unlink.getInfo());
     } catch (err) {
-        console.error('[unlink/info]', err.message);
-        res.status(500).json({ error: err.message });
+        console.error('[unlink/info]', errMsg(err));
+        res.status(500).json({ error: errMsg(err) });
     }
 });
 
@@ -158,8 +167,8 @@ app.post('/api/unlink/send', async (req, res) => {
         console.log(`[unlink/send] ${amount} -> ${recipientAddress}`);
         res.json(await unlink.sendPrivate({ recipientAddress, amount }));
     } catch (err) {
-        console.error('[unlink/send]', err.message);
-        res.status(500).json({ error: err.message });
+        console.error('[unlink/send]', errMsg(err));
+        res.status(500).json({ error: errMsg(err) });
     }
 });
 
@@ -170,8 +179,8 @@ app.post('/api/unlink/withdraw', async (req, res) => {
     try {
         res.json(await unlink.withdraw({ recipientEvmAddress, amount }));
     } catch (err) {
-        console.error('[unlink/withdraw]', err.message);
-        res.status(500).json({ error: err.message });
+        console.error('[unlink/withdraw]', errMsg(err));
+        res.status(500).json({ error: errMsg(err) });
     }
 });
 
@@ -182,8 +191,8 @@ app.post('/api/unlink/shield', async (req, res) => {
     try {
         res.json(await unlink.shield({ amount }));
     } catch (err) {
-        console.error('[unlink/shield]', err.message);
-        res.status(500).json({ error: err.message });
+        console.error('[unlink/shield]', errMsg(err));
+        res.status(500).json({ error: errMsg(err) });
     }
 });
 

@@ -63,8 +63,9 @@ import { getCoLPFlow } from './coLPFlow.js?v=2';
 import { getDashboard } from './dashboard.js';
 import { hasActiveSwap, loadActiveSwap, loadActiveSwaps, saveActiveSwap, addOrUpdateActiveSwap, removeActiveSwap, clearActiveSwap, setSwapsArray, getActiveSwapByRequestId, saveToHistory } from './storage.js';
 import { CONTRACTS, SWAP_CONFIG } from './config.js';
+import * as unlink from './unlinkFlow.js';
 import { displaySwapHistory } from './swapHistory.js?v=3';
-import { loadRecentActivity, startActivityFeedWatcher } from './activityFeed.js?v=4';
+import { loadRecentActivity, startActivityFeedWatcher } from './activityFeed.js?v=5';
 import { updateProtocolStats } from './protocolStats.js?v=3';
 
 // Global state
@@ -393,7 +394,7 @@ async function init() {
     } else if (savedTab === 'swap') {
         await handleSwapTab();
     } else if (savedTab === 'unlink') {
-        showUnlinkTab();
+        handleUnlinkTab();
     }
 
     console.log('[SUCCESS] Phantom Agent ready');
@@ -417,12 +418,23 @@ function setupEventHandlers() {
     elements.tabCoLP.addEventListener('click', () => handleCoLPTab());
     elements.tabLp.addEventListener('click', () => handleLpTab());
     elements.tabSwap.addEventListener('click', () => handleSwapTab());
-    elements.tabUnlink.addEventListener('click', () => showUnlinkTab());
-    
-    // Unlink deposit flow
-    const startUnlinkBtn = document.getElementById('start-unlink-deposit');
-    if (startUnlinkBtn) {
-        startUnlinkBtn.addEventListener('click', handleUnlinkDeposit);
+    elements.tabUnlink.addEventListener('click', () => handleUnlinkTab());
+
+    // Unlink private-send flow (custodial — send / withdraw)
+    bindClick('unlink-copy-btn', handleUnlinkCopy);
+    bindClick('unlink-refresh-balance', refreshUnlinkInfo);
+    bindClick('unlink-send-btn', handlePrivateSend);
+    bindClick('unlink-withdraw-btn', handleWithdraw);
+
+    // Tab on the empty recipient field auto-fills the suggested (placeholder) address.
+    const recipientInput = document.getElementById('unlink-send-recipient');
+    if (recipientInput) {
+        recipientInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Tab' && !e.shiftKey && recipientInput.value.trim() === '' && recipientInput.placeholder.startsWith('unlink1')) {
+                e.preventDefault();
+                recipientInput.value = recipientInput.placeholder;
+            }
+        });
     }
     
     // Mint flow
@@ -2128,69 +2140,118 @@ async function handleVaultSelect(isMint) {
     }
 }
 
-/**
- * Handle Unlink private deposit
- */
-async function handleUnlinkDeposit() {
-    const tokenAddress = document.getElementById('unlink-token-address').value.trim();
-    const amount = document.getElementById('unlink-amount').value.trim();
-    const progress = document.getElementById('unlink-progress');
-    const result = document.getElementById('unlink-result');
-    const btn = document.getElementById('start-unlink-deposit');
+// ─── Unlink private-send handlers (custodial: send / shield / withdraw) ──────
+//
+// A custodial server (the Uniswap proxy) holds the Unlink identity + funds and
+// performs the shield + private transfer. No wallet connection is required here.
 
-    if (!tokenAddress || !amount) {
-        result.className = 'alert alert-error';
-        result.textContent = 'Please enter token address and amount.';
-        result.classList.remove('hidden');
-        return;
-    }
+/** Wire a click handler by element id, no-op if the element is absent. */
+function bindClick(id, handler) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', handler);
+}
 
-    btn.disabled = true;
-    progress.classList.remove('hidden');
-    result.classList.add('hidden');
+/** Live status line in the Unlink panel. */
+function setUnlinkStatus(msg) {
+    const el = document.getElementById('unlink-status');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.remove('hidden');
+}
 
-    const statusInit = document.getElementById('unlink-status-init');
-    const statusRegister = document.getElementById('unlink-status-register');
-    const statusDeposit = document.getElementById('unlink-status-deposit');
+/** Result alert (success/error) in the Unlink panel. */
+function showUnlinkResult(html, ok) {
+    const el = document.getElementById('unlink-result');
+    if (!el) return;
+    el.className = 'alert ' + (ok ? 'alert-success' : 'alert-error');
+    el.innerHTML = html;
+    el.classList.remove('hidden');
+}
 
-    statusInit.textContent = 'In progress...';
-    statusRegister.textContent = 'Waiting...';
-    statusDeposit.textContent = 'Waiting...';
+let unlinkCustodialAddress = null;
 
+/** Open the Unlink tab and load custodial account info. */
+function handleUnlinkTab() {
+    showUnlinkTab();
+    refreshUnlinkInfo();
+}
+
+/** Load the custodial server's unlink address + private balance. */
+async function refreshUnlinkInfo() {
+    const balEl = document.getElementById('unlink-balance');
+    const addrEl = document.getElementById('unlink-address');
+    const tokEl = document.getElementById('unlink-token-label');
+    const expected = '0x81aab8b92b38d0ab60b99b4af12edaee92b9c0c4';
     try {
-        const res = await fetch('http://localhost:3001/api/unlink-deposit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tokenAddress, amount })
-        });
-
-        const data = await res.json();
-
-        if (data.success) {
-            statusInit.textContent = 'Done';
-            statusRegister.textContent = 'Done';
-            statusDeposit.textContent = 'Done';
-            result.className = 'alert alert-success';
-            result.innerHTML = `<strong>Deposit Successful!</strong><br>
-                Status: ${data.status}<br>
-                Unlink Address: ${data.unlinkAddress}<br>
-                EVM Address: ${data.evmAddress}<br>
-                Amount: ${data.amount}`;
-            result.classList.remove('hidden');
-        } else {
-            throw new Error(data.error || 'Unknown error');
+        if (balEl) balEl.textContent = 'Loading…';
+        const info = await unlink.getInfo();
+        unlinkCustodialAddress = info.unlinkAddress;
+        if (balEl) balEl.textContent = `${info.balance} ${info.tokenSymbol || 'wsXMR'}`;
+        if (addrEl) addrEl.textContent = info.unlinkAddress;
+        if (tokEl) {
+            const mismatch = info.token && info.token.toLowerCase() !== expected;
+            tokEl.textContent = `Active token: ${info.token}${mismatch ? ' ⚠️ not wsXMR — restart the proxy to load .env' : ''}`;
+            tokEl.style.color = mismatch ? '#c0392b' : '';
         }
     } catch (err) {
-        console.error('Unlink deposit failed:', err);
-        statusInit.textContent = 'Failed';
-        statusRegister.textContent = 'Failed';
-        statusDeposit.textContent = 'Failed';
-        result.className = 'alert alert-error';
-        result.textContent = 'Error: ' + err.message;
-        result.classList.remove('hidden');
-    } finally {
-        btn.disabled = false;
+        console.warn('Could not load Unlink info:', err.message);
+        if (balEl) balEl.textContent = '— wsXMR';
+        if (addrEl) addrEl.textContent = 'unavailable (is the Unlink server running on port 3002?)';
     }
+}
+
+async function handleUnlinkCopy() {
+    if (!unlinkCustodialAddress) return;
+    try {
+        await navigator.clipboard.writeText(unlinkCustodialAddress);
+        setUnlinkStatus('Address copied.');
+    } catch (_) { /* clipboard may be unavailable */ }
+}
+
+/** Shared runner: disable button, run action, refresh info, surface errors. */
+async function runUnlinkAction(btnId, action) {
+    const btn = document.getElementById(btnId);
+    if (btn) btn.disabled = true;
+    document.getElementById('unlink-result')?.classList.add('hidden');
+    try {
+        await action();
+        await refreshUnlinkInfo();
+    } catch (err) {
+        console.error('Unlink action failed:', err);
+        showUnlinkResult('Error: ' + (err.message || err), false);
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function handlePrivateSend() {
+    const recipient = document.getElementById('unlink-send-recipient')?.value.trim();
+    const amount = document.getElementById('unlink-send-amount')?.value.trim();
+    await runUnlinkAction('unlink-send-btn', async () => {
+        if (!recipient || !recipient.startsWith('unlink1')) {
+            throw new Error('Enter a valid recipient Unlink address (unlink1…).');
+        }
+        if (!amount || Number(amount) <= 0) throw new Error('Enter an amount greater than 0.');
+        setUnlinkStatus('Sending privately…');
+        const res = await unlink.sendPrivate(recipient, amount);
+        document.getElementById('unlink-send-amount').value = '';
+        showUnlinkResult(`<strong>Sent ${res.amount} wsXMR privately.</strong> Status: ${res.transferStatus}.`, true);
+    });
+}
+
+async function handleWithdraw() {
+    const amount = document.getElementById('unlink-withdraw-amount')?.value.trim();
+    const dest = document.getElementById('unlink-withdraw-evm')?.value.trim();
+    await runUnlinkAction('unlink-withdraw-btn', async () => {
+        if (!/^0x[a-fA-F0-9]{40}$/.test(dest || '')) {
+            throw new Error('Enter a valid destination EVM address (0x…).');
+        }
+        if (!amount || Number(amount) <= 0) throw new Error('Enter an amount greater than 0.');
+        setUnlinkStatus('Withdrawing…');
+        const res = await unlink.withdraw(amount, dest);
+        document.getElementById('unlink-withdraw-amount').value = '';
+        showUnlinkResult(`<strong>Withdrew ${amount} wsXMR to ${dest.slice(0, 8)}…</strong> Status: ${res.status}.`, true);
+    });
 }
 
 /**

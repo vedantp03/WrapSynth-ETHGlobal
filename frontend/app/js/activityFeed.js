@@ -1,8 +1,13 @@
 // Recent Activity Feed - Shows recent mints and burns from all users
 
 import { getPublicClient } from './viemClient.js';
-import { CONTRACTS } from './config.js';
+import { CONTRACTS, UNISWAP_CONFIG } from './config.js';
 import { parseAbi } from 'https://esm.sh/viem@2.7.0';
+
+// Uniswap V3 pool Swap event (token0=WETH, token1=wsXMR)
+const POOL_SWAP_ABI = parseAbi([
+    'event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)'
+]);
 
 // Event ABI strings matching the deployed contract exactly
 const HUB_EVENTS_ABI = parseAbi([
@@ -47,23 +52,33 @@ export async function loadRecentActivity() {
             chunks.push({ from, to });
         }
 
-        // Fetch all hub events in chunks, batching 5-at-a-time to avoid rate limits
+        // Fetch hub events + pool Swap events in chunks, batching 5-at-a-time
+        const poolAddress = CONTRACTS.wsxmrWethSwapPool;
         let allLogs = [];
         const batchSize = 5;
         for (let i = 0; i < chunks.length; i += batchSize) {
             const batch = chunks.slice(i, i + batchSize);
             const results = await Promise.all(
-                batch.map(({ from, to }) =>
+                batch.flatMap(({ from, to }) => [
                     publicClient.getLogs({
                         address: hubAddress,
                         events: HUB_EVENTS_ABI,
                         fromBlock: from,
                         toBlock: to
                     }).catch(err => {
-                        console.warn(`[Activity] Chunk ${from}-${to} failed:`, err.message || err);
+                        console.warn(`[Activity] Hub chunk ${from}-${to} failed:`, err.message || err);
+                        return [];
+                    }),
+                    publicClient.getLogs({
+                        address: poolAddress,
+                        events: POOL_SWAP_ABI,
+                        fromBlock: from,
+                        toBlock: to
+                    }).catch(err => {
+                        console.warn(`[Activity] Pool chunk ${from}-${to} failed:`, err.message || err);
                         return [];
                     })
-                )
+                ])
             );
             for (const logs of results) {
                 allLogs = allLogs.concat(logs);
@@ -72,10 +87,13 @@ export async function loadRecentActivity() {
 
         console.log('Found', allLogs.length, 'total logs');
 
+        const poolAddrLower = poolAddress.toLowerCase();
         // Tag and sort by block number (newest first)
         const allEvents = allLogs.map(log => ({
             ...log,
-            type: log.eventName.charAt(0).toLowerCase() + log.eventName.slice(1)
+            type: log.address?.toLowerCase() === poolAddrLower && log.eventName === 'Swap'
+                ? 'uniswapSwap'
+                : log.eventName.charAt(0).toLowerCase() + log.eventName.slice(1)
         })).sort((a, b) => {
             const blockDiff = Number(b.blockNumber - a.blockNumber);
             if (blockDiff !== 0) return blockDiff;
@@ -143,6 +161,7 @@ const EVENT_ICONS = {
     coLPDeployed: { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>`, color: '#8b5cf6' },
     coLPUnwound: { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>`, color: '#ef4444' },
     coLPRebalanced: { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`, color: '#f59e0b' },
+    uniswapSwap: { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`, color: '#6366f1' },
     unknown: { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`, color: '#94a3b8' }
 };
 
@@ -277,6 +296,29 @@ function renderActivityItem(event, currentBlock) {
             detail = `Token #${oldTokenId} → #${newTokenId} (${shortVault})`;
             break;
         }
+        case 'uniswapSwap': {
+            // token0=WETH (18 dec), token1=wsXMR (8 dec)
+            // amount0 > 0 means WETH flowed INTO the pool → user sold WETH, got wsXMR
+            // amount0 < 0 means WETH flowed OUT of the pool → user sold wsXMR, got WETH
+            const amt0 = BigInt(args.amount0 || 0n);
+            const amt1 = BigInt(args.amount1 || 0n);
+            const recipient = args.recipient || 'Unknown';
+            const shortRecipient = recipient !== 'Unknown' ? `${recipient.slice(0, 6)}…${recipient.slice(-4)}` : 'Unknown';
+            if (amt0 > 0n) {
+                // WETH → wsXMR
+                const wethIn = (Number(amt0) / 1e18).toFixed(6).replace(/\.?0+$/, '');
+                const wsxmrOut = (Number(-amt1) / 1e8).toFixed(6).replace(/\.?0+$/, '');
+                title = 'Swap WETH → wsXMR';
+                detail = `${wethIn} WETH → ${wsxmrOut} wsXMR by ${shortRecipient}`;
+            } else {
+                // wsXMR → WETH
+                const wsxmrIn = (Number(amt1) / 1e8).toFixed(6).replace(/\.?0+$/, '');
+                const wethOut = (Number(-amt0) / 1e18).toFixed(6).replace(/\.?0+$/, '');
+                title = 'Swap wsXMR → WETH';
+                detail = `${wsxmrIn} wsXMR → ${wethOut} WETH by ${shortRecipient}`;
+            }
+            break;
+        }
         default: {
             title = 'Unknown Event';
             detail = '';
@@ -300,6 +342,7 @@ function renderActivityItem(event, currentBlock) {
 }
 
 let hubWatcherUnsubscribe = null;
+let poolWatcherUnsubscribe = null;
 
 function handleNewActivityLogs(logs, publicClient) {
     const activityFeed = document.getElementById('activity-feed');
@@ -373,9 +416,11 @@ function handleNewActivityLogs(logs, publicClient) {
  */
 export function startActivityFeedWatcher() {
     if (hubWatcherUnsubscribe) { hubWatcherUnsubscribe(); hubWatcherUnsubscribe = null; }
+    if (poolWatcherUnsubscribe) { poolWatcherUnsubscribe(); poolWatcherUnsubscribe = null; }
 
     try {
         const publicClient = getPublicClient();
+        const poolAddrLower = CONTRACTS.wsxmrWethSwapPool.toLowerCase();
 
         hubWatcherUnsubscribe = publicClient.watchContractEvent({
             address: CONTRACTS.hub,
@@ -384,13 +429,27 @@ export function startActivityFeedWatcher() {
             onLogs: (logs) => handleNewActivityLogs(logs, publicClient)
         });
 
-        console.log('[Activity Feed] Real-time watcher started (hub)');
+        poolWatcherUnsubscribe = publicClient.watchContractEvent({
+            address: CONTRACTS.wsxmrWethSwapPool,
+            abi: POOL_SWAP_ABI,
+            pollingInterval: 4000,
+            onLogs: (logs) => {
+                const tagged = logs.map(l => ({
+                    ...l,
+                    type: l.address?.toLowerCase() === poolAddrLower ? 'uniswapSwap' : 'unknown'
+                }));
+                handleNewActivityLogs(tagged, publicClient);
+            }
+        });
+
+        console.log('[Activity Feed] Real-time watchers started (hub + wsXMR/WETH pool)');
     } catch (error) {
         console.error('Failed to start activity feed watcher:', error);
     }
 
     return () => {
         if (hubWatcherUnsubscribe) { hubWatcherUnsubscribe(); hubWatcherUnsubscribe = null; }
+        if (poolWatcherUnsubscribe) { poolWatcherUnsubscribe(); poolWatcherUnsubscribe = null; }
     };
 }
 
