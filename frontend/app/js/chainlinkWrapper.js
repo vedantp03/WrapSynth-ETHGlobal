@@ -11,7 +11,7 @@
 //      ChainlinkDataStreamsOracleFacet, which verifies each report via the
 //      on-chain VerifierProxy and stores the resulting prices.
 
-import { CONTRACTS, ORACLE_CONFIG } from './config.js';
+import { CONTRACTS, ORACLE_CONFIG } from './config.js?v=20260614vps';
 import { getWalletClient, getPublicClient, getUserAddress } from './viemClient.js';
 
 // Prevent multiple concurrent updates and rate-limit repeated calls.

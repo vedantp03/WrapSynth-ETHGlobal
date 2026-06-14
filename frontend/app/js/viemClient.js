@@ -3,7 +3,7 @@
 
 import { createPublicClient, createWalletClient, custom, http, fallback, parseAbi } from 'https://esm.sh/viem@2.7.0';
 import { baseSepolia } from 'https://esm.sh/viem@2.7.0/chains';
-import { NETWORKS, CONTRACTS, ABIS, RAW_ABIS } from './config.js';
+import { NETWORKS, CONTRACTS, ABIS, RAW_ABIS } from './config.js?v=20260614';
 
 // Parse ABIs once at module level
 export const parsedABIs = {

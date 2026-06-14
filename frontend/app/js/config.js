@@ -28,7 +28,7 @@ export const NETWORKS = {
 // Stream IDs and verifier are confirmed against the testnet data engine
 // (see frontend/report-proxy/checkFeeds.js).
 export const ORACLE_CONFIG = {
-    reportProxyUrl: (typeof window !== 'undefined' && window.REPORT_PROXY_URL) || 'http://localhost:3001',
+    reportProxyUrl: (typeof window !== 'undefined' && window.REPORT_PROXY_URL) || 'http://api.wrapsynth.com',
     xmrFeedId: '0x0003c70558bd921b1559d37b8e347797f121d1240e7386e68b2bee9b731b0833', // XMR/USD-RefPrice-testnet-production
     ethFeedId: '0x000359843a543ee2fe414dc14c7e7920ef10f4372990b79d6361cdc0dd1ba782', // ETH/USD-RefPrice-testnet-production
     verifierProxy: '0x8Ac491b7c118a0cdcF048e0f707247fD8C9575f9',
@@ -52,7 +52,7 @@ export const DEPLOYMENT_BLOCK = D.deploymentBlock ? BigInt(D.deploymentBlock) : 
 // LP Server Configuration
 export const LP_SERVER_CONFIG = {
     // Default LP server URL (operator's server)
-    defaultUrl: 'http://localhost:3001',
+    defaultUrl: 'http://api.wrapsynth.com',
     // Endpoints
     endpoints: {
         info: '/info',
@@ -176,8 +176,10 @@ export const RAW_ABIS = {
                 { name: 'mintNonce', type: 'uint256' },
                 { name: 'minBurnAmount', type: 'uint256' },
                 { name: 'active', type: 'bool' },
-                { name: 'deployedWETHShares', type: 'uint256' },
-                { name: 'maxCoLPRangeBps', type: 'uint16' }
+                { name: 'deployedCollateralShares', type: 'uint256' },
+                { name: 'maxCoLPRangeBps', type: 'uint16' },
+                { name: 'mintTimeoutBlocks', type: 'uint256' },
+                { name: 'burnTimeoutBlocks', type: 'uint256' }
             ],
             name: '',
             type: 'tuple'

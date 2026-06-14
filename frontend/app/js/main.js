@@ -1197,6 +1197,8 @@ async function handleCoLPOpen() {
         await handleCoLPVaultSelect();
         // Refresh active positions list
         await handleRefreshCoLPPositions();
+        // Refresh vault display to show updated Co-LP deployed amount
+        await loadVaults();
     } catch (error) {
         console.error('Open Co-LP error:', error);
         showError('Open Co-LP Error', error.message);
@@ -1874,7 +1876,7 @@ async function loadVaults() {
                 console.log('Raw vault data:', vaultData);
                 console.log('Collateral shares:', vaultData.collateralShares?.toString());
                 console.log('Locked collateral:', vaultData.lockedCollateral?.toString());
-                console.log('Deployed Co-LP collateral (deployedWETHShares field):', vaultData.deployedWETHShares?.toString());
+                console.log('Deployed Co-LP collateral (deployedCollateralShares field):', vaultData.deployedCollateralShares?.toString());
                 console.log('Debt:', vaultData.normalizedDebt?.toString());
                 console.log('Active:', vaultData.active);
 
@@ -1913,7 +1915,8 @@ async function loadVaults() {
                     // Buffer = extra 50% collateral required to maintain 150% ratio (on total debt)
                     const bufferCollateral = (usedCollateral + pendingCollateral) * 0.5;
                     // Co-LP deployed collateral (tracked separately from lockedCollateral)
-                    const coLPShares = BigInt(vaultData.deployedWETHShares?.toString?.() ?? '0');
+                    // Fallback to index 14 if named field doesn't exist (ABI mismatch)
+                    const coLPShares = BigInt((vaultData.deployedCollateralShares ?? vaultData[14] ?? '0').toString());
                     let coLPCollateral = 0;
                     
                     if (coLPShares > 0n) {
@@ -1929,7 +1932,7 @@ async function loadVaults() {
                             console.log('Co-LP collateral (via convertToAssets):', coLPCollateral, 'ETH');
                         } catch (e) {
                             console.warn('convertToAssets for co-LP shares failed:', e.message);
-                            // For wETH-based systems, deployedWETHShares is already in wei
+                            // For wETH-based systems, deployedCollateralShares is already in wei
                             // so convert directly without calling convertToAssets
                             coLPCollateral = Number(coLPShares) / 1e18;
                             console.log('Co-LP collateral (1:1 fallback):', coLPCollateral, 'ETH');
@@ -2158,7 +2161,7 @@ async function handleUnlinkDeposit() {
     statusDeposit.textContent = 'Waiting...';
 
     try {
-        const res = await fetch('http://localhost:3001/api/unlink-deposit', {
+        const res = await fetch('https://packet-publicly-saves-engineers.trycloudflare.com/api/unlink-deposit', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tokenAddress, amount })

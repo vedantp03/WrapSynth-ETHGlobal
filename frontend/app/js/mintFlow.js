@@ -340,7 +340,7 @@ export class MintFlow {
                     console.warn('Price update failed:', updateMsg);
 
                     if (isProxyDown) {
-                        console.warn('Report proxy at localhost:3002 appears to be down.');
+                        console.warn('Report proxy at 76.13.98.87:3001 appears to be down.');
                     }
 
                     // Fall back to polling if proactive update fails
@@ -372,8 +372,8 @@ export class MintFlow {
                     if (!fresh) {
                         throw new Error(
                             'Oracle prices are still stale. ' +
-                            'The report proxy (localhost:3002) is not running. ' +
-                            'Start it with: node frontend/report-proxy/server.js  ' +
+                            'The report proxy (76.13.98.87:3001) is not running. ' +
+                            'Start it with: node lp-handler.js  ' +
                             'Or set window.SKIP_ORACLE_CHECK = true in the console to bypass for testing.'
                         );
                     }

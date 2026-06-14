@@ -335,8 +335,8 @@ app.post('/api/unlink-deposit', async (req, res) => {
 burnHandler.registerRoutes(app);
 
 // ─── Start Server ─────────────────────────────────────────────────────────────
-app.listen(PORT, async () => {
-  console.log(`HTTP server listening on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', async () => {
+  console.log(`HTTP server listening on http://0.0.0.0:${PORT}`);
   await startEventListener();
   burnHandler.attachEventListeners(hub, wallet, provider);
 });

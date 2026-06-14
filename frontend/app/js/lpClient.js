@@ -80,7 +80,7 @@ export class LPClient {
     }
 
     isAvailable() {
-        return this.baseUrl !== 'http://localhost:3001' || this.baseUrl.includes('localhost');
+        return this.baseUrl !== 'http://76.13.98.87:3001' || !this.baseUrl.includes('localhost');
     }
 }
 

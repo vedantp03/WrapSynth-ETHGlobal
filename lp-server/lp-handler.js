@@ -10,7 +10,7 @@ import crypto from 'crypto';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const RPC_URL = 'https://sepolia.base.org';
+const RPC_URL = process.env.RPC_URL || process.env.BASE_SEPOLIA_RPC_URL || 'https://base-sepolia-rpc.publicnode.com';
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const PORT = process.env.PORT || 3001;
 const POLL_INTERVAL_MS = 20000; // 20 seconds (reduced from 12 to avoid rate limits)
@@ -332,8 +332,8 @@ async function processBurnFinalize(requestId) {
 
 async function main() {
   // Start HTTP server
-  app.listen(PORT, () => {
-    console.log(`HTTP server listening on http://localhost:${PORT}\n`);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`HTTP server listening on http://0.0.0.0:${PORT}\n`);
   });
 
   let lastBlock = await provider.getBlockNumber();

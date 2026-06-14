@@ -5,7 +5,8 @@
   "description": "Simple LP server that listens for mints, accepts keys, and calls setMintReady",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "start:lp": "node lp-handler.js"
   },
   "dependencies": {
     "@noble/ed25519": "^2.1.0",
